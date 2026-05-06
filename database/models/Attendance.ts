@@ -10,6 +10,8 @@ export interface AttendanceAttributes {
   checkIn: string | null;
   checkOut: string | null;
   status: string;
+  lateMinutes: number | null;
+  pointPenalty: number;
   location: string | null;
   deviceMac: string | null;
   note: string | null;
@@ -25,6 +27,8 @@ export type AttendanceCreationAttributes = Optional<
   | "checkIn"
   | "checkOut"
   | "status"
+  | "lateMinutes"
+  | "pointPenalty"
   | "location"
   | "deviceMac"
   | "note"
@@ -37,21 +41,23 @@ class Attendance
   extends Model<AttendanceAttributes, AttendanceCreationAttributes>
   implements AttendanceAttributes
 {
-  public id!: number;
-  public userId!: number | null;
-  public fullName!: string;
-  public role!: string;
-  public attendanceDate!: string;
-  public checkIn!: string | null;
-  public checkOut!: string | null;
-  public status!: string;
-  public location!: string | null;
-  public deviceMac!: string | null;
-  public note!: string | null;
-  public isManual!: boolean;
+  declare id: number;
+  declare userId: number | null;
+  declare fullName: string;
+  declare role: string;
+  declare attendanceDate: string;
+  declare checkIn: string | null;
+  declare checkOut: string | null;
+  declare status: string;
+  declare lateMinutes: number | null;
+  declare pointPenalty: number;
+  declare location: string | null;
+  declare deviceMac: string | null;
+  declare note: string | null;
+  declare isManual: boolean;
 
-  public readonly createdAt!: Date;
-  public readonly updatedAt!: Date;
+  declare readonly createdAt: Date;
+  declare readonly updatedAt: Date;
 }
 
 Attendance.init(
@@ -101,6 +107,19 @@ Attendance.init(
       type: DataTypes.STRING,
       allowNull: false,
       defaultValue: "hadir",
+    },
+
+    lateMinutes: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      field: "late_minutes",
+    },
+
+    pointPenalty: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 0,
+      field: "point_penalty",
     },
 
     location: {
