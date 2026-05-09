@@ -2,9 +2,21 @@ import { NextRequest } from "next/server";
 import { MembershipPlan } from "@/database/models";
 import { errorResponse, successResponse } from "@/lib/response";
 
+type CustomerCategory = "prima_grup" | "non_prima_grup";
+
 function toNumber(value: unknown, defaultValue = 0) {
   const number = Number(value);
   return Number.isFinite(number) ? number : defaultValue;
+}
+
+function normalizeCustomerCategory(value: unknown): CustomerCategory | null {
+  const category = String(value ?? "").trim().toLowerCase();
+
+  if (category === "prima_grup" || category === "non_prima_grup") {
+    return category;
+  }
+
+  return null;
 }
 
 export async function GET() {
@@ -29,7 +41,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
 
     const programName = String(body.programName ?? "").trim();
-    const customerCategory = String(body.customerCategory ?? "").trim();
+    const customerCategory = normalizeCustomerCategory(body.customerCategory);
     const packageCode = String(body.packageCode ?? "").trim();
     const name = String(body.name ?? "").trim();
 
@@ -45,7 +57,12 @@ export async function POST(request: NextRequest) {
     const discountPercent = toNumber(body.discountPercent);
     const personalTrainerSessions = toNumber(body.personalTrainerSessions);
     const pilatesSessions = toNumber(body.pilatesSessions);
-    const freeMembershipMonths = toNumber(body.freeMembershipMonths);
+
+    // Model kamu pakai freeMembershipDays, bukan freeMembershipMonths.
+    // Fallback freeMembershipMonths dibuat supaya request lama tetap aman.
+    const freeMembershipDays = toNumber(
+      body.freeMembershipDays ?? body.freeMembershipMonths
+    );
 
     const benefits = Array.isArray(body.benefits)
       ? body.benefits
@@ -61,7 +78,10 @@ export async function POST(request: NextRequest) {
     }
 
     if (!customerCategory) {
-      return errorResponse("Customer category wajib diisi", 400);
+      return errorResponse(
+        "Customer category wajib diisi dan harus prima_grup atau non_prima_grup",
+        400
+      );
     }
 
     if (!packageCode) {
@@ -83,7 +103,7 @@ export async function POST(request: NextRequest) {
       discountPercent,
       personalTrainerSessions,
       pilatesSessions,
-      freeMembershipMonths,
+      freeMembershipDays,
       benefits,
       isActive,
     });
