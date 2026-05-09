@@ -2,6 +2,8 @@ import { NextRequest } from "next/server";
 import { MembershipPlan } from "@/database/models";
 import { errorResponse, successResponse } from "@/lib/response";
 
+type CustomerCategory = "prima_grup" | "non_prima_grup";
+
 function toNumberOrUndefined(value: unknown) {
   if (value === undefined || value === null || value === "") {
     return undefined;
@@ -9,6 +11,20 @@ function toNumberOrUndefined(value: unknown) {
 
   const number = Number(value);
   return Number.isFinite(number) ? number : undefined;
+}
+
+function normalizeCustomerCategory(value: unknown): CustomerCategory | undefined {
+  if (value === undefined || value === null || value === "") {
+    return undefined;
+  }
+
+  const category = String(value).trim().toLowerCase();
+
+  if (category === "prima_grup" || category === "non_prima_grup") {
+    return category;
+  }
+
+  return undefined;
 }
 
 export async function GET(
@@ -54,10 +70,7 @@ export async function PUT(
         ? String(body.programName).trim()
         : undefined;
 
-    const customerCategory =
-      body.customerCategory !== undefined
-        ? String(body.customerCategory).trim()
-        : undefined;
+    const customerCategory = normalizeCustomerCategory(body.customerCategory);
 
     const packageCode =
       body.packageCode !== undefined
@@ -79,10 +92,13 @@ export async function PUT(
 
     const price = toNumberOrUndefined(body.price);
     const discountPercent = toNumberOrUndefined(body.discountPercent);
+
     const personalTrainerSessions = toNumberOrUndefined(
       body.personalTrainerSessions
     );
+
     const pilatesSessions = toNumberOrUndefined(body.pilatesSessions);
+
     const freeMembershipMonths = toNumberOrUndefined(
       body.freeMembershipMonths
     );
@@ -119,9 +135,11 @@ export async function PUT(
       ...(isActive !== undefined && { isActive }),
     });
 
+    const updatedPlan = await MembershipPlan.findByPk(id);
+
     return successResponse({
       message: "Membership plan berhasil diupdate",
-      data: plan,
+      data: updatedPlan,
     });
   } catch (error) {
     console.error("UPDATE MEMBERSHIP PLAN ERROR:", error);
