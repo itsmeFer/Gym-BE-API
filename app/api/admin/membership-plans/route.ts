@@ -45,21 +45,22 @@ export async function POST(request: NextRequest) {
     const packageCode = String(body.packageCode ?? "").trim();
     const name = String(body.name ?? "").trim();
 
-    const description = body.description
-      ? String(body.description).trim()
-      : null;
+    const description =
+      body.description !== undefined && body.description !== null
+        ? String(body.description).trim()
+        : null;
 
-    const imageUrl = body.imageUrl
-      ? String(body.imageUrl).trim()
-      : null;
+    const imageUrl =
+      body.imageUrl !== undefined && body.imageUrl !== null
+        ? String(body.imageUrl).trim()
+        : null;
 
     const price = toNumber(body.price);
+    const durationDays = toNumber(body.durationDays, 30);
     const discountPercent = toNumber(body.discountPercent);
     const personalTrainerSessions = toNumber(body.personalTrainerSessions);
     const pilatesSessions = toNumber(body.pilatesSessions);
 
-    // Model kamu pakai freeMembershipDays, bukan freeMembershipMonths.
-    // Fallback freeMembershipMonths dibuat supaya request lama tetap aman.
     const freeMembershipDays = toNumber(
       body.freeMembershipDays ?? body.freeMembershipMonths
     );
@@ -70,8 +71,7 @@ export async function POST(request: NextRequest) {
           .filter(Boolean)
       : [];
 
-    const isActive =
-      typeof body.isActive === "boolean" ? body.isActive : true;
+    const isActive = typeof body.isActive === "boolean" ? body.isActive : true;
 
     if (!programName) {
       return errorResponse("Program name wajib diisi", 400);
@@ -100,6 +100,7 @@ export async function POST(request: NextRequest) {
       description,
       imageUrl,
       price,
+      durationDays,
       discountPercent,
       personalTrainerSessions,
       pilatesSessions,

@@ -81,16 +81,21 @@ export async function PUT(
       body.name !== undefined ? String(body.name).trim() : undefined;
 
     const description =
-      body.description !== undefined
+      body.description !== undefined && body.description !== null
         ? String(body.description).trim()
-        : undefined;
+        : body.description === null
+          ? null
+          : undefined;
 
     const imageUrl =
-      body.imageUrl !== undefined
+      body.imageUrl !== undefined && body.imageUrl !== null
         ? String(body.imageUrl).trim()
-        : undefined;
+        : body.imageUrl === null
+          ? null
+          : undefined;
 
     const price = toNumberOrUndefined(body.price);
+    const durationDays = toNumberOrUndefined(body.durationDays);
     const discountPercent = toNumberOrUndefined(body.discountPercent);
 
     const personalTrainerSessions = toNumberOrUndefined(
@@ -99,8 +104,8 @@ export async function PUT(
 
     const pilatesSessions = toNumberOrUndefined(body.pilatesSessions);
 
-    const freeMembershipMonths = toNumberOrUndefined(
-      body.freeMembershipMonths
+    const freeMembershipDays = toNumberOrUndefined(
+      body.freeMembershipDays ?? body.freeMembershipMonths
     );
 
     const benefits =
@@ -123,13 +128,14 @@ export async function PUT(
       ...(description !== undefined && { description }),
       ...(imageUrl !== undefined && { imageUrl }),
       ...(price !== undefined && { price }),
+      ...(durationDays !== undefined && { durationDays }),
       ...(discountPercent !== undefined && { discountPercent }),
       ...(personalTrainerSessions !== undefined && {
         personalTrainerSessions,
       }),
       ...(pilatesSessions !== undefined && { pilatesSessions }),
-      ...(freeMembershipMonths !== undefined && {
-        freeMembershipMonths,
+      ...(freeMembershipDays !== undefined && {
+        freeMembershipDays,
       }),
       ...(benefits !== undefined && { benefits }),
       ...(isActive !== undefined && { isActive }),
