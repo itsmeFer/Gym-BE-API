@@ -37,6 +37,7 @@ export type MembershipCreationAttributes = Optional<
   | "id"
   | "salesUserId"
   | "planId"
+  | "packageName"
   | "packagePrice"
   | "paymentMethod"
   | "paymentStatus"
@@ -117,6 +118,7 @@ Membership.init(
     packageName: {
       type: DataTypes.STRING(100),
       allowNull: false,
+      defaultValue: "Membership",
       field: "package_name",
     },
 
@@ -203,6 +205,7 @@ Membership.init(
     notes: {
       type: DataTypes.TEXT,
       allowNull: true,
+      field: "notes",
     },
   },
   {
