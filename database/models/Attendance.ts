@@ -14,6 +14,8 @@ export interface AttendanceAttributes {
   pointPenalty: number;
   location: string | null;
   deviceMac: string | null;
+  checkInPhoto: string | null;
+  checkOutPhoto: string | null;
   note: string | null;
   isManual: boolean;
   createdAt?: Date;
@@ -31,6 +33,8 @@ export type AttendanceCreationAttributes = Optional<
   | "pointPenalty"
   | "location"
   | "deviceMac"
+  | "checkInPhoto"
+  | "checkOutPhoto"
   | "note"
   | "isManual"
   | "createdAt"
@@ -53,6 +57,8 @@ class Attendance
   declare pointPenalty: number;
   declare location: string | null;
   declare deviceMac: string | null;
+  declare checkInPhoto: string | null;
+  declare checkOutPhoto: string | null;
   declare note: string | null;
   declare isManual: boolean;
 
@@ -131,6 +137,18 @@ Attendance.init(
       type: DataTypes.STRING,
       allowNull: true,
       field: "device_mac",
+    },
+
+    checkInPhoto: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+      field: "check_in_photo",
+    },
+
+    checkOutPhoto: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+      field: "check_out_photo",
     },
 
     note: {

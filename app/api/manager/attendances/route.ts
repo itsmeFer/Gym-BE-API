@@ -18,9 +18,7 @@ type AttendanceSettingRaw = {
 };
 
 function toNumberOrNull(value: unknown) {
-  if (value === undefined || value === null || value === "") {
-    return null;
-  }
+  if (value === undefined || value === null || value === "") return null;
 
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
@@ -42,9 +40,7 @@ function normalizeStatus(value: unknown) {
 function timeToMinutes(time: string) {
   const cleanTime = time.trim().slice(0, 5);
 
-  if (!/^\d{2}:\d{2}$/.test(cleanTime)) {
-    return null;
-  }
+  if (!/^\d{2}:\d{2}$/.test(cleanTime)) return null;
 
   const [hour, minute] = cleanTime.split(":").map(Number);
 
@@ -107,18 +103,18 @@ function calculatePenalty(params: {
 }) {
   const lateMinutes = Math.max(params.lateMinutes, 0);
 
-  if (lateMinutes <= 0) {
-    return 0;
-  }
+  if (lateMinutes <= 0) return 0;
 
   const penaltyIntervalMinutes = Math.max(
     Number(params.penaltyIntervalMinutes ?? 60),
     1,
   );
+
   const penaltyPointsPerInterval = Math.max(
     Number(params.penaltyPointsPerInterval ?? 1),
     0,
   );
+
   const maxLatePenaltyPoints = Math.max(
     Number(params.maxLatePenaltyPoints ?? 8),
     0,
@@ -190,7 +186,7 @@ async function resolveAttendanceResult(params: {
   const lateToleranceMinutes = Number(setting.lateToleranceMinutes ?? 0);
   const isLateByRule = actualMinutes > expectedMinutes + lateToleranceMinutes;
 
-  if (isLateStatus(inputStatus)) {
+  if (isLateStatus(inputStatus) || isLateByRule) {
     const pointPenalty = calculatePenalty({
       lateMinutes,
       penaltyIntervalMinutes: setting.penaltyIntervalMinutes,
@@ -205,25 +201,10 @@ async function resolveAttendanceResult(params: {
     };
   }
 
-  if (!isLateByRule) {
-    return {
-      status: "hadir",
-      lateMinutes: 0,
-      pointPenalty: 0,
-    };
-  }
-
-  const pointPenalty = calculatePenalty({
-    lateMinutes,
-    penaltyIntervalMinutes: setting.penaltyIntervalMinutes,
-    penaltyPointsPerInterval: setting.penaltyPointsPerInterval,
-    maxLatePenaltyPoints: setting.maxLatePenaltyPoints,
-  });
-
   return {
-    status: "telat",
-    lateMinutes,
-    pointPenalty,
+    status: "hadir",
+    lateMinutes: 0,
+    pointPenalty: 0,
   };
 }
 
@@ -243,23 +224,17 @@ export async function GET(request: NextRequest) {
   try {
     const searchParams = request.nextUrl.searchParams;
 
+    const userId = toNumberOrNull(searchParams.get("userId"));
     const role = searchParams.get("role");
     const status = searchParams.get("status");
     const date = searchParams.get("date");
 
     const where: Record<string, unknown> = {};
 
-    if (role) {
-      where.role = role.toLowerCase();
-    }
-
-    if (status) {
-      where.status = status;
-    }
-
-    if (date) {
-      where.attendanceDate = date;
-    }
+    if (userId) where.userId = userId;
+    if (role) where.role = role.toLowerCase();
+    if (status) where.status = status;
+    if (date) where.attendanceDate = date;
 
     const attendances = await Attendance.findAll({
       where,
@@ -274,8 +249,7 @@ export async function GET(request: NextRequest) {
       data: attendances,
     });
   } catch (error) {
-    console.error("GET ATTENDANCES ERROR:", error);
-
+    console.error("GET MANAGER ATTENDANCES ERROR:", error);
     return errorResponse("Gagal mengambil data absensi", 500);
   }
 }
@@ -288,29 +262,38 @@ export async function POST(request: NextRequest) {
     const fullName = String(
       body.fullName ?? body.full_name ?? body.name ?? "",
     ).trim();
+
     const role = String(body.role ?? "").trim().toLowerCase();
     const attendanceDate = body.attendanceDate
       ? String(body.attendanceDate).trim()
       : todayDate();
+
     const checkIn = body.checkIn ? String(body.checkIn).trim() : null;
     const checkOut = body.checkOut ? String(body.checkOut).trim() : null;
     const inputStatus = normalizeStatus(body.status);
     const location = body.location ? String(body.location).trim() : null;
     const deviceMac = body.deviceMac ? String(body.deviceMac).trim() : null;
     const note = body.note ? String(body.note).trim() : null;
-    const isManual = typeof body.isManual === "boolean" ? body.isManual : true;
 
-    if (!fullName) {
-      return errorResponse("Nama wajib diisi", 400);
-    }
+    const checkInPhoto =
+      body.checkInPhoto ?? body.check_in_photo
+        ? String(body.checkInPhoto ?? body.check_in_photo).trim()
+        : null;
 
-    if (!role) {
-      return errorResponse("Role wajib diisi", 400);
-    }
+    const checkOutPhoto =
+      body.checkOutPhoto ?? body.check_out_photo
+        ? String(body.checkOutPhoto ?? body.check_out_photo).trim()
+        : null;
 
-    if (!attendanceDate) {
-      return errorResponse("Tanggal absensi wajib diisi", 400);
-    }
+    const isManual =
+      typeof body.isManual === "boolean"
+        ? body.isManual
+        : typeof body.is_manual === "boolean"
+          ? body.is_manual
+          : true;
+
+    if (!fullName) return errorResponse("Nama wajib diisi", 400);
+    if (!role) return errorResponse("Role wajib diisi", 400);
 
     const attendanceResult = await resolveAttendanceResult({
       role,
@@ -330,6 +313,8 @@ export async function POST(request: NextRequest) {
       pointPenalty: attendanceResult.pointPenalty,
       location,
       deviceMac,
+      checkInPhoto,
+      checkOutPhoto,
       note,
       isManual,
     });
@@ -337,15 +322,11 @@ export async function POST(request: NextRequest) {
     await applyUserPointDelta(userId, attendanceResult.pointPenalty);
 
     return successResponse({
-      message:
-        attendanceResult.pointPenalty < 0
-          ? "Absensi berhasil dibuat dan point user sudah dikurangi"
-          : "Absensi berhasil dibuat",
+      message: "Absensi berhasil dibuat",
       data: attendance,
     });
   } catch (error) {
-    console.error("CREATE ATTENDANCE ERROR:", error);
-
+    console.error("CREATE MANAGER ATTENDANCE ERROR:", error);
     return errorResponse("Gagal membuat absensi", 500);
   }
 }

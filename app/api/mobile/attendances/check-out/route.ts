@@ -41,6 +41,32 @@ function toNumberOrNull(value: unknown) {
   return Number.isFinite(number) ? number : null;
 }
 
+function normalizePhoto(value: unknown) {
+  if (value === undefined || value === null) {
+    return null;
+  }
+
+  const text = String(value).trim();
+
+  if (!text) {
+    return null;
+  }
+
+  return text;
+}
+
+function getRequiredCheckOutPhoto(body: Record<string, unknown>) {
+  return normalizePhoto(
+    body.checkOutPhoto ??
+      body.check_out_photo ??
+      body.photoUrl ??
+      body.photo_url ??
+      body.photoBase64 ??
+      body.photo_base64 ??
+      body.photo
+  );
+}
+
 function timeToMinutes(value: string | null | undefined) {
   if (!value) return null;
 
@@ -181,7 +207,7 @@ function validateDistance(params: {
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
+    const body = (await request.json()) as Record<string, unknown>;
 
     const userId = toNumberOrNull(body.userId ?? body.user_id);
 
@@ -199,10 +225,16 @@ export async function POST(request: NextRequest) {
         ? String(body.device_mac).trim()
         : null;
 
+    const checkOutPhoto = getRequiredCheckOutPhoto(body);
+
     const note = body.note ? String(body.note).trim() : null;
 
     if (!userId) {
       return errorResponse("User belum dikenali. Silakan login ulang.", 400);
+    }
+
+    if (!checkOutPhoto) {
+      return errorResponse("Foto absen keluar wajib dikirim.", 400);
     }
 
     const today = getJakartaDateString();
@@ -283,6 +315,7 @@ export async function POST(request: NextRequest) {
       checkOut: nowTime,
       location: locationText || attendance.location,
       deviceMac: deviceMac || attendance.deviceMac,
+      checkOutPhoto,
       note: note || attendance.note,
     });
 

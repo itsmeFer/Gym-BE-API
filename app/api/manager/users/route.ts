@@ -5,17 +5,17 @@ import { Op } from "sequelize";
 import { User } from "@/database/models";
 import { errorResponse, successResponse } from "@/lib/response";
 
-const STAFF_ROLES = [
+const MANAGER_ALLOWED_ROLES = [
   "admin",
   "direktur",
   "manager",
   "karyawan",
   "trainer",
   "sales",
-  "kasir",
+  "customer",
 ] as const;
 
-type StaffRole = (typeof STAFF_ROLES)[number];
+type ManagerAllowedRole = (typeof MANAGER_ALLOWED_ROLES)[number];
 
 type RawUser = {
   id?: number;
@@ -35,26 +35,16 @@ type RawUser = {
   created_at?: Date;
 };
 
-function getUserName(user: RawUser) {
-  return (
-    user.fullName ||
-    user.full_name ||
-    user.name ||
-    user.nama ||
-    user.email ||
-    `User ${user.id ?? ""}`
-  );
-}
-
-function normalizeRole(value: unknown): StaffRole | null {
+function normalizeRole(value: unknown): ManagerAllowedRole | null {
   const role = String(value ?? "").trim().toLowerCase();
 
-  return STAFF_ROLES.includes(role as StaffRole) ? (role as StaffRole) : null;
+  return MANAGER_ALLOWED_ROLES.includes(role as ManagerAllowedRole)
+    ? (role as ManagerAllowedRole)
+    : null;
 }
 
 function toBoolean(value: unknown, defaultValue = true) {
   if (typeof value === "boolean") return value;
-
   if (typeof value === "number") return value === 1;
 
   if (typeof value === "string") {
@@ -72,13 +62,23 @@ function toBoolean(value: unknown, defaultValue = true) {
 
 function toNumber(value: unknown, defaultValue = 0) {
   const number = Number(value);
-
   return Number.isFinite(number) ? number : defaultValue;
+}
+
+function getUserName(user: RawUser) {
+  return (
+    user.fullName ||
+    user.full_name ||
+    user.name ||
+    user.nama ||
+    user.email ||
+    `User ${user.id ?? ""}`
+  );
 }
 
 function serializeUser(user: RawUser) {
   const points = toNumber(user.points, 0);
-  const maxPoints = toNumber(user.maxPoints ?? user.max_points, points);
+  const maxPoints = toNumber(user.maxPoints ?? user.max_points, points || 100);
 
   return {
     id: user.id,
@@ -86,7 +86,7 @@ function serializeUser(user: RawUser) {
     fullName: getUserName(user),
     email: user.email ?? "",
     phone: user.phone ?? "",
-    role: String(user.role ?? "karyawan").toLowerCase(),
+    role: String(user.role ?? "customer").toLowerCase(),
     points,
     maxPoints,
     isActive: user.isActive ?? user.is_active ?? true,
@@ -101,9 +101,20 @@ function generateReferralCode(name: string) {
   return `PG-${cleanName || "USER"}-${random}`;
 }
 
+/**
+ * GET /api/manager/users
+ *
+ * Ambil semua user semua role:
+ * admin, direktur, manager, karyawan, trainer, sales, customer.
+ */
 export async function GET() {
   try {
     const users = (await User.findAll({
+      where: {
+        role: {
+          [Op.in]: [...MANAGER_ALLOWED_ROLES],
+        },
+      },
       raw: true,
       order: [["id", "DESC"]],
     })) as RawUser[];
@@ -113,12 +124,30 @@ export async function GET() {
       data: users.map(serializeUser),
     });
   } catch (error) {
-    console.error("GET ADMIN USERS ERROR:", error);
+    console.error("GET MANAGER USERS ERROR:", error);
 
     return errorResponse("Gagal mengambil data user", 500);
   }
 }
 
+/**
+ * POST /api/manager/users
+ *
+ * Buat user semua role:
+ * admin, direktur, manager, karyawan, trainer, sales, customer.
+ *
+ * Body contoh:
+ * {
+ *   "name": "Budi",
+ *   "phone": "08123456789",
+ *   "email": "budi@gmail.com",
+ *   "password": "123456",
+ *   "role": "karyawan",
+ *   "points": 100,
+ *   "maxPoints": 100,
+ *   "isActive": true
+ * }
+ */
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
@@ -140,14 +169,25 @@ export async function POST(request: NextRequest) {
     const points = Math.max(toNumber(pointsRaw, 100), 0);
     const maxPoints = Math.max(toNumber(maxPointsRaw, points), 0);
 
-    if (!name) return errorResponse("Nama wajib diisi", 400);
-    if (!phone) return errorResponse("Nomor HP wajib diisi", 400);
-    if (!email) return errorResponse("Email wajib diisi", 400);
-    if (!password) return errorResponse("Password wajib diisi", 400);
+    if (!name) {
+      return errorResponse("Nama wajib diisi", 400);
+    }
+
+    if (!phone) {
+      return errorResponse("Nomor HP wajib diisi", 400);
+    }
+
+    if (!email) {
+      return errorResponse("Email wajib diisi", 400);
+    }
+
+    if (!password) {
+      return errorResponse("Password wajib diisi", 400);
+    }
 
     if (!role) {
       return errorResponse(
-        "Role hanya boleh admin, direktur, manager, karyawan, trainer, sales, atau kasir",
+        "Role hanya boleh admin, direktur, manager, karyawan, trainer, sales, atau customer",
         400,
       );
     }
@@ -180,7 +220,7 @@ export async function POST(request: NextRequest) {
 
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    const user = await User.create({
+    const createPayload = {
       name,
       phone,
       email,
@@ -188,19 +228,21 @@ export async function POST(request: NextRequest) {
       role,
       points,
       maxPoints,
-      referralCode: generateReferralCode(name),
-      referredByCode: null,
-      referredByUserId: null,
       isActive,
-    });
+      ...(User.rawAttributes.referralCode
+        ? { referralCode: generateReferralCode(name) }
+        : {}),
+    };
+
+    const user = await User.create(createPayload as any);
 
     return successResponse({
-      message: "Akun tim berhasil dibuat",
+      message: "User berhasil dibuat",
       data: serializeUser(user.get({ plain: true }) as RawUser),
     });
   } catch (error) {
-    console.error("CREATE ADMIN USER ERROR:", error);
+    console.error("CREATE MANAGER USER ERROR:", error);
 
-    return errorResponse("Gagal membuat akun tim", 500);
+    return errorResponse("Gagal membuat user", 500);
   }
 }

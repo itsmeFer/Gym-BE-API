@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
-import { Attendance, AttendanceSetting } from "@/database/models";
+
+import { Attendance, AttendanceSetting, User } from "@/database/models";
 import { errorResponse, successResponse } from "@/lib/response";
 
 type AttendanceSettingRaw = {
@@ -47,6 +48,32 @@ function toNumberOrNull(value: unknown) {
   return Number.isFinite(number) ? number : null;
 }
 
+function normalizePhoto(value: unknown) {
+  if (value === undefined || value === null) {
+    return null;
+  }
+
+  const text = String(value).trim();
+
+  if (!text) {
+    return null;
+  }
+
+  return text;
+}
+
+function getRequiredCheckInPhoto(body: Record<string, unknown>) {
+  return normalizePhoto(
+    body.checkInPhoto ??
+      body.check_in_photo ??
+      body.photoUrl ??
+      body.photo_url ??
+      body.photoBase64 ??
+      body.photo_base64 ??
+      body.photo,
+  );
+}
+
 function timeToMinutes(time: string) {
   const cleanTime = time.trim().slice(0, 5);
 
@@ -81,7 +108,6 @@ function calculateDistanceMeters(params: {
   toLongitude: number;
 }) {
   const earthRadiusMeters = 6371000;
-
   const fromLatRad = toRadians(params.fromLatitude);
   const toLatRad = toRadians(params.toLatitude);
   const deltaLatRad = toRadians(params.toLatitude - params.fromLatitude);
@@ -93,22 +119,19 @@ function calculateDistanceMeters(params: {
       Math.cos(toLatRad) *
       Math.sin(deltaLonRad / 2) *
       Math.sin(deltaLonRad / 2);
-
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 
   return earthRadiusMeters * c;
 }
 
 async function getAttendanceSetting(role: string) {
-  const setting = (await AttendanceSetting.findOne({
+  return (await AttendanceSetting.findOne({
     where: {
       role,
       isActive: true,
     },
     raw: true,
   })) as AttendanceSettingRaw | null;
-
-  return setting;
 }
 
 function validateDistance(params: {
@@ -129,12 +152,10 @@ function validateDistance(params: {
 
   const officeLatitude = toNumberOrNull(setting.officeLatitude);
   const officeLongitude = toNumberOrNull(setting.officeLongitude);
-
   const allowedRadiusMeters = Math.max(
     Number(setting.allowedRadiusMeters ?? 100),
-    1
+    1,
   );
-
   const geofenceIsEnabled =
     officeLatitude !== null && officeLongitude !== null;
 
@@ -163,7 +184,7 @@ function validateDistance(params: {
       fromLongitude: officeLongitude,
       toLatitude: userLatitude,
       toLongitude: userLongitude,
-    })
+    }),
   );
 
   if (distanceMeters > allowedRadiusMeters) {
@@ -210,7 +231,6 @@ function calculateLateResult(params: {
 
   const rawLateMinutes = actualMinutes - expectedMinutes;
   const lateMinutes = rawLateMinutes > 0 ? rawLateMinutes : 0;
-
   const lateToleranceMinutes = Number(setting.lateToleranceMinutes ?? 0);
   const isLate = actualMinutes > expectedMinutes + lateToleranceMinutes;
 
@@ -224,27 +244,19 @@ function calculateLateResult(params: {
 
   const penaltyIntervalMinutes = Math.max(
     Number(setting.penaltyIntervalMinutes ?? 60),
-    1
+    1,
   );
-
   const penaltyPointsPerInterval = Math.max(
     Number(setting.penaltyPointsPerInterval ?? 1),
-    0
+    0,
   );
-
   const maxLatePenaltyPoints = Math.max(
     Number(setting.maxLatePenaltyPoints ?? 8),
-    0
+    0,
   );
-
   const intervalCount = Math.ceil(lateMinutes / penaltyIntervalMinutes);
-
   const rawPenaltyPoints = intervalCount * penaltyPointsPerInterval;
-
-  const cappedPenaltyPoints = Math.min(
-    rawPenaltyPoints,
-    maxLatePenaltyPoints
-  );
+  const cappedPenaltyPoints = Math.min(rawPenaltyPoints, maxLatePenaltyPoints);
 
   return {
     status: "telat",
@@ -253,32 +265,38 @@ function calculateLateResult(params: {
   };
 }
 
+async function applyUserPointDelta(userId: number, delta: number) {
+  if (delta === 0) return;
+
+  const user = await User.findByPk(userId);
+  if (!user) return;
+
+  const currentPoints = Number(user.get("points") ?? 100);
+  const nextPoints = Math.max(currentPoints + delta, 0);
+
+  await user.update({ points: nextPoints });
+}
+
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
+    const body = (await request.json()) as Record<string, unknown>;
 
     const userId = toNumberOrNull(body.userId ?? body.user_id);
-
     const fullName = String(
-      body.fullName ?? body.full_name ?? body.name ?? ""
+      body.fullName ?? body.full_name ?? body.name ?? "",
     ).trim();
-
     const role = String(body.role ?? "").trim().toLowerCase();
-
     const userLatitude = toNumberOrNull(body.latitude ?? body.lat);
-
     const userLongitude = toNumberOrNull(
-      body.longitude ?? body.lng ?? body.long
+      body.longitude ?? body.lng ?? body.long,
     );
-
     const location = body.location ? String(body.location).trim() : null;
-
     const deviceMac = body.deviceMac
       ? String(body.deviceMac).trim()
       : body.device_mac
         ? String(body.device_mac).trim()
         : null;
-
+    const checkInPhoto = getRequiredCheckInPhoto(body);
     const note = body.note ? String(body.note).trim() : null;
 
     if (!userId) {
@@ -291,6 +309,10 @@ export async function POST(request: NextRequest) {
 
     if (!role) {
       return errorResponse("Role user tidak ditemukan", 400);
+    }
+
+    if (!checkInPhoto) {
+      return errorResponse("Foto absen masuk wajib dikirim.", 400);
     }
 
     const today = getJakartaDateString();
@@ -308,7 +330,6 @@ export async function POST(request: NextRequest) {
     }
 
     const setting = await getAttendanceSetting(role);
-
     const distanceResult = validateDistance({
       userLatitude,
       userLongitude,
@@ -323,12 +344,11 @@ export async function POST(request: NextRequest) {
       checkIn: nowTime.slice(0, 5),
       setting,
     });
-
     const locationText =
       userLatitude !== null && userLongitude !== null
         ? `${location ?? "Lokasi user"} (${userLatitude}, ${userLongitude})${
             distanceResult.distanceMeters !== null
-              ? ` • jarak ${distanceResult.distanceMeters}m`
+              ? ` - jarak ${distanceResult.distanceMeters}m`
               : ""
           }`
         : location;
@@ -345,14 +365,18 @@ export async function POST(request: NextRequest) {
       pointPenalty: attendanceResult.pointPenalty,
       location: locationText,
       deviceMac,
+      checkInPhoto,
+      checkOutPhoto: null,
       note,
       isManual: false,
     });
 
+    await applyUserPointDelta(userId, attendanceResult.pointPenalty);
+
     return successResponse({
       message:
-        attendanceResult.status === "telat"
-          ? "Absen masuk berhasil, tapi kamu tercatat telat."
+        attendanceResult.pointPenalty < 0
+          ? "Absen masuk berhasil, telat, dan point kamu sudah dikurangi."
           : "Absen masuk berhasil. Semangat kerja hari ini!",
       data: attendance,
     });
@@ -361,7 +385,7 @@ export async function POST(request: NextRequest) {
 
     return errorResponse(
       "Terjadi kesalahan saat absen masuk. Coba lagi sebentar ya.",
-      500
+      500,
     );
   }
 }

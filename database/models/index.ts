@@ -1,4 +1,43 @@
-export { User } from "./User";
-export { default as MembershipPlan } from "./MembershipPlan";
-export { default as Attendance } from "./Attendance";
-export { default as AttendanceSetting } from "./AttendanceSetting";
+import { User } from "./User";
+import Membership from "./Membership";
+import MembershipPlan from "./MembershipPlan";
+import Attendance from "./Attendance";
+import AttendanceSetting from "./AttendanceSetting";
+
+User.hasMany(Membership, {
+  foreignKey: "userId",
+  as: "memberships",
+});
+
+Membership.belongsTo(User, {
+  foreignKey: "userId",
+  as: "user",
+});
+
+User.hasMany(Membership, {
+  foreignKey: "salesUserId",
+  as: "salesMemberships",
+});
+
+Membership.belongsTo(User, {
+  foreignKey: "salesUserId",
+  as: "sales",
+});
+
+MembershipPlan.hasMany(Membership, {
+  foreignKey: "planId",
+  as: "memberships",
+});
+
+Membership.belongsTo(MembershipPlan, {
+  foreignKey: "planId",
+  as: "plan",
+});
+
+export {
+  User,
+  Membership,
+  MembershipPlan,
+  Attendance,
+  AttendanceSetting,
+};

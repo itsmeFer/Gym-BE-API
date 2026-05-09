@@ -1,19 +1,28 @@
 import { DataTypes, Model, Optional } from "sequelize";
 import { sequelize } from "@/database/connection";
 
+export const MEMBERSHIP_CUSTOMER_CATEGORIES = [
+  "prima_grup",
+  "non_prima_grup",
+] as const;
+
+export type MembershipCustomerCategory =
+  (typeof MEMBERSHIP_CUSTOMER_CATEGORIES)[number];
+
 export interface MembershipPlanAttributes {
   id: number;
   programName: string;
-  customerCategory: string;
+  customerCategory: MembershipCustomerCategory;
   packageCode: string;
   name: string;
   description: string | null;
   imageUrl: string | null;
   price: number;
+  durationDays: number;
   discountPercent: number;
   personalTrainerSessions: number;
   pilatesSessions: number;
-  freeMembershipMonths: number;
+  freeMembershipDays: number;
   benefits: string[];
   isActive: boolean;
   createdAt?: Date;
@@ -25,10 +34,12 @@ export type MembershipPlanCreationAttributes = Optional<
   | "id"
   | "description"
   | "imageUrl"
+  | "price"
+  | "durationDays"
   | "discountPercent"
   | "personalTrainerSessions"
   | "pilatesSessions"
-  | "freeMembershipMonths"
+  | "freeMembershipDays"
   | "benefits"
   | "isActive"
   | "createdAt"
@@ -41,16 +52,17 @@ class MembershipPlan
 {
   public id!: number;
   public programName!: string;
-  public customerCategory!: string;
+  public customerCategory!: MembershipCustomerCategory;
   public packageCode!: string;
   public name!: string;
   public description!: string | null;
   public imageUrl!: string | null;
   public price!: number;
+  public durationDays!: number;
   public discountPercent!: number;
   public personalTrainerSessions!: number;
   public pilatesSessions!: number;
-  public freeMembershipMonths!: number;
+  public freeMembershipDays!: number;
   public benefits!: string[];
   public isActive!: boolean;
 
@@ -76,6 +88,12 @@ MembershipPlan.init(
       type: DataTypes.STRING,
       allowNull: false,
       field: "customer_category",
+      validate: {
+        isIn: {
+          args: [[...MEMBERSHIP_CUSTOMER_CATEGORIES]],
+          msg: "Customer category hanya boleh prima_grup atau non_prima_grup",
+        },
+      },
     },
 
     packageCode: {
@@ -106,6 +124,13 @@ MembershipPlan.init(
       defaultValue: 0,
     },
 
+    durationDays: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 30,
+      field: "duration_days",
+    },
+
     discountPercent: {
       type: DataTypes.INTEGER,
       allowNull: false,
@@ -127,11 +152,11 @@ MembershipPlan.init(
       field: "pilates_sessions",
     },
 
-    freeMembershipMonths: {
+    freeMembershipDays: {
       type: DataTypes.INTEGER,
       allowNull: false,
       defaultValue: 0,
-      field: "free_membership_months",
+      field: "free_membership_days",
     },
 
     benefits: {

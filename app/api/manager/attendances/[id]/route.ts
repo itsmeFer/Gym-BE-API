@@ -18,21 +18,10 @@ type AttendanceSettingRaw = {
 };
 
 function toNumberOrNull(value: unknown) {
-  if (value === undefined || value === null || value === "") {
-    return null;
-  }
+  if (value === undefined || value === null || value === "") return null;
 
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
-}
-
-function todayDate() {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Jakarta",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(new Date());
 }
 
 function normalizeStatus(value: unknown) {
@@ -42,9 +31,7 @@ function normalizeStatus(value: unknown) {
 function timeToMinutes(time: string) {
   const cleanTime = time.trim().slice(0, 5);
 
-  if (!/^\d{2}:\d{2}$/.test(cleanTime)) {
-    return null;
-  }
+  if (!/^\d{2}:\d{2}$/.test(cleanTime)) return null;
 
   const [hour, minute] = cleanTime.split(":").map(Number);
 
@@ -107,18 +94,18 @@ function calculatePenalty(params: {
 }) {
   const lateMinutes = Math.max(params.lateMinutes, 0);
 
-  if (lateMinutes <= 0) {
-    return 0;
-  }
+  if (lateMinutes <= 0) return 0;
 
   const penaltyIntervalMinutes = Math.max(
     Number(params.penaltyIntervalMinutes ?? 60),
     1,
   );
+
   const penaltyPointsPerInterval = Math.max(
     Number(params.penaltyPointsPerInterval ?? 1),
     0,
   );
+
   const maxLatePenaltyPoints = Math.max(
     Number(params.maxLatePenaltyPoints ?? 8),
     0,
@@ -190,7 +177,7 @@ async function resolveAttendanceResult(params: {
   const lateToleranceMinutes = Number(setting.lateToleranceMinutes ?? 0);
   const isLateByRule = actualMinutes > expectedMinutes + lateToleranceMinutes;
 
-  if (isLateStatus(inputStatus)) {
+  if (isLateStatus(inputStatus) || isLateByRule) {
     const pointPenalty = calculatePenalty({
       lateMinutes,
       penaltyIntervalMinutes: setting.penaltyIntervalMinutes,
@@ -205,25 +192,10 @@ async function resolveAttendanceResult(params: {
     };
   }
 
-  if (!isLateByRule) {
-    return {
-      status: "hadir",
-      lateMinutes: 0,
-      pointPenalty: 0,
-    };
-  }
-
-  const pointPenalty = calculatePenalty({
-    lateMinutes,
-    penaltyIntervalMinutes: setting.penaltyIntervalMinutes,
-    penaltyPointsPerInterval: setting.penaltyPointsPerInterval,
-    maxLatePenaltyPoints: setting.maxLatePenaltyPoints,
-  });
-
   return {
-    status: "telat",
-    lateMinutes,
-    pointPenalty,
+    status: "hadir",
+    lateMinutes: 0,
+    pointPenalty: 0,
   };
 }
 
@@ -239,78 +211,118 @@ async function applyUserPointDelta(userId: number | null, delta: number) {
   await user.update({ points: nextPoints });
 }
 
-export async function GET(request: NextRequest) {
+function getPlainAttendance(attendance: any) {
+  return attendance.get({ plain: true }) as any;
+}
+
+export async function GET(
+  request: NextRequest,
+  context: { params: Promise<{ id: string }> },
+) {
   try {
-    const searchParams = request.nextUrl.searchParams;
+    const { id } = await context.params;
 
-    const role = searchParams.get("role");
-    const status = searchParams.get("status");
-    const date = searchParams.get("date");
+    const attendance = await Attendance.findByPk(id);
 
-    const where: Record<string, unknown> = {};
-
-    if (role) {
-      where.role = role.toLowerCase();
+    if (!attendance) {
+      return errorResponse("Absensi tidak ditemukan", 404);
     }
-
-    if (status) {
-      where.status = status;
-    }
-
-    if (date) {
-      where.attendanceDate = date;
-    }
-
-    const attendances = await Attendance.findAll({
-      where,
-      order: [
-        ["attendanceDate", "DESC"],
-        ["createdAt", "DESC"],
-      ],
-    });
 
     return successResponse({
-      message: "Data absensi berhasil diambil",
-      data: attendances,
+      message: "Detail absensi berhasil diambil",
+      data: attendance,
     });
   } catch (error) {
-    console.error("GET ATTENDANCES ERROR:", error);
-
-    return errorResponse("Gagal mengambil data absensi", 500);
+    console.error("GET MANAGER ATTENDANCE DETAIL ERROR:", error);
+    return errorResponse("Gagal mengambil detail absensi", 500);
   }
 }
 
-export async function POST(request: NextRequest) {
+export async function PUT(
+  request: NextRequest,
+  context: { params: Promise<{ id: string }> },
+) {
   try {
+    const { id } = await context.params;
     const body = await request.json();
 
-    const userId = toNumberOrNull(body.userId ?? body.user_id);
+    const attendance = await Attendance.findByPk(id);
+
+    if (!attendance) {
+      return errorResponse("Absensi tidak ditemukan", 404);
+    }
+
+    const oldAttendance = getPlainAttendance(attendance);
+    const oldUserId = toNumberOrNull(oldAttendance.userId ?? oldAttendance.user_id);
+    const oldPointPenalty = Number(
+      oldAttendance.pointPenalty ?? oldAttendance.point_penalty ?? 0,
+    );
+
+    const userId = toNumberOrNull(body.userId ?? body.user_id) ?? oldUserId;
+
     const fullName = String(
-      body.fullName ?? body.full_name ?? body.name ?? "",
+      body.fullName ??
+        body.full_name ??
+        oldAttendance.fullName ??
+        oldAttendance.full_name ??
+        "",
     ).trim();
-    const role = String(body.role ?? "").trim().toLowerCase();
-    const attendanceDate = body.attendanceDate
-      ? String(body.attendanceDate).trim()
-      : todayDate();
-    const checkIn = body.checkIn ? String(body.checkIn).trim() : null;
-    const checkOut = body.checkOut ? String(body.checkOut).trim() : null;
-    const inputStatus = normalizeStatus(body.status);
-    const location = body.location ? String(body.location).trim() : null;
-    const deviceMac = body.deviceMac ? String(body.deviceMac).trim() : null;
-    const note = body.note ? String(body.note).trim() : null;
-    const isManual = typeof body.isManual === "boolean" ? body.isManual : true;
 
-    if (!fullName) {
-      return errorResponse("Nama wajib diisi", 400);
-    }
+    const role = String(body.role ?? oldAttendance.role ?? "")
+      .trim()
+      .toLowerCase();
 
-    if (!role) {
-      return errorResponse("Role wajib diisi", 400);
-    }
+    const attendanceDate = String(
+      body.attendanceDate ??
+        body.attendance_date ??
+        oldAttendance.attendanceDate ??
+        oldAttendance.attendance_date ??
+        "",
+    ).trim();
 
-    if (!attendanceDate) {
-      return errorResponse("Tanggal absensi wajib diisi", 400);
-    }
+    const checkIn =
+      body.checkIn ??
+      body.check_in ??
+      oldAttendance.checkIn ??
+      oldAttendance.check_in ??
+      null;
+
+    const checkOut =
+      body.checkOut ??
+      body.check_out ??
+      oldAttendance.checkOut ??
+      oldAttendance.check_out ??
+      null;
+
+    const inputStatus = normalizeStatus(body.status ?? oldAttendance.status);
+
+    const location =
+      body.location !== undefined
+        ? String(body.location).trim() || null
+        : oldAttendance.location ?? null;
+
+    const deviceMac =
+      body.deviceMac !== undefined || body.device_mac !== undefined
+        ? String(body.deviceMac ?? body.device_mac).trim() || null
+        : oldAttendance.deviceMac ?? oldAttendance.device_mac ?? null;
+
+    const note =
+      body.note !== undefined
+        ? String(body.note).trim() || null
+        : oldAttendance.note ?? null;
+
+    const checkInPhoto =
+      body.checkInPhoto !== undefined || body.check_in_photo !== undefined
+        ? String(body.checkInPhoto ?? body.check_in_photo).trim() || null
+        : oldAttendance.checkInPhoto ?? oldAttendance.check_in_photo ?? null;
+
+    const checkOutPhoto =
+      body.checkOutPhoto !== undefined || body.check_out_photo !== undefined
+        ? String(body.checkOutPhoto ?? body.check_out_photo).trim() || null
+        : oldAttendance.checkOutPhoto ?? oldAttendance.check_out_photo ?? null;
+
+    if (!fullName) return errorResponse("Nama wajib diisi", 400);
+    if (!role) return errorResponse("Role wajib diisi", 400);
 
     const attendanceResult = await resolveAttendanceResult({
       role,
@@ -318,7 +330,7 @@ export async function POST(request: NextRequest) {
       inputStatus,
     });
 
-    const attendance = await Attendance.create({
+    await attendance.update({
       userId,
       fullName,
       role,
@@ -330,22 +342,58 @@ export async function POST(request: NextRequest) {
       pointPenalty: attendanceResult.pointPenalty,
       location,
       deviceMac,
+      checkInPhoto,
+      checkOutPhoto,
       note,
-      isManual,
     });
 
-    await applyUserPointDelta(userId, attendanceResult.pointPenalty);
+    if (oldUserId !== userId) {
+      await applyUserPointDelta(oldUserId, -oldPointPenalty);
+      await applyUserPointDelta(userId, attendanceResult.pointPenalty);
+    } else {
+      await applyUserPointDelta(userId, attendanceResult.pointPenalty - oldPointPenalty);
+    }
+
+    const updatedAttendance = await Attendance.findByPk(id);
 
     return successResponse({
-      message:
-        attendanceResult.pointPenalty < 0
-          ? "Absensi berhasil dibuat dan point user sudah dikurangi"
-          : "Absensi berhasil dibuat",
-      data: attendance,
+      message: "Absensi berhasil diupdate",
+      data: updatedAttendance,
     });
   } catch (error) {
-    console.error("CREATE ATTENDANCE ERROR:", error);
+    console.error("UPDATE MANAGER ATTENDANCE ERROR:", error);
+    return errorResponse("Gagal update absensi", 500);
+  }
+}
 
-    return errorResponse("Gagal membuat absensi", 500);
+export async function DELETE(
+  request: NextRequest,
+  context: { params: Promise<{ id: string }> },
+) {
+  try {
+    const { id } = await context.params;
+
+    const attendance = await Attendance.findByPk(id);
+
+    if (!attendance) {
+      return errorResponse("Absensi tidak ditemukan", 404);
+    }
+
+    const oldAttendance = getPlainAttendance(attendance);
+    const userId = toNumberOrNull(oldAttendance.userId ?? oldAttendance.user_id);
+    const pointPenalty = Number(
+      oldAttendance.pointPenalty ?? oldAttendance.point_penalty ?? 0,
+    );
+
+    await attendance.destroy();
+    await applyUserPointDelta(userId, -pointPenalty);
+
+    return successResponse({
+      message: "Absensi berhasil dihapus",
+      data: null,
+    });
+  } catch (error) {
+    console.error("DELETE MANAGER ATTENDANCE ERROR:", error);
+    return errorResponse("Gagal hapus absensi", 500);
   }
 }

@@ -9,7 +9,7 @@ const ALL_ROLES = [
   "karyawan",
   "trainer",
   "sales",
-  "kasir",
+  "customer",
 ];
 
 function toNumber(value: unknown, defaultValue = 0) {
@@ -18,24 +18,18 @@ function toNumber(value: unknown, defaultValue = 0) {
 }
 
 function toNumberOrNull(value: unknown) {
-  if (value === undefined || value === null || value === "") {
-    return null;
-  }
+  if (value === undefined || value === null || value === "") return null;
 
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
 }
 
 function normalizeTime(value: unknown) {
-  if (value === undefined || value === null || value === "") {
-    return null;
-  }
+  if (value === undefined || value === null || value === "") return null;
 
   const text = String(value).trim();
 
-  if (!/^\d{2}:\d{2}$/.test(text)) {
-    return null;
-  }
+  if (!/^\d{2}:\d{2}$/.test(text)) return null;
 
   const [hour, minute] = text.split(":").map(Number);
 
@@ -76,8 +70,7 @@ export async function GET() {
       data: settings,
     });
   } catch (error) {
-    console.error("GET ATTENDANCE SETTINGS ERROR:", error);
-
+    console.error("GET MANAGER ATTENDANCE SETTINGS ERROR:", error);
     return errorResponse("Gagal mengambil setting absensi", 500);
   }
 }
@@ -88,53 +81,48 @@ export async function POST(request: NextRequest) {
 
     const role = normalizeRole(body.role);
 
-    const checkInTime = normalizeTime(
-      body.checkInTime ?? body.check_in_time
-    );
-
-    const checkOutTime = normalizeTime(
-      body.checkOutTime ?? body.check_out_time
-    );
+    const checkInTime = normalizeTime(body.checkInTime ?? body.check_in_time);
+    const checkOutTime = normalizeTime(body.checkOutTime ?? body.check_out_time);
 
     const officeLatitude = toNumberOrNull(
-      body.officeLatitude ?? body.office_latitude
+      body.officeLatitude ?? body.office_latitude,
     );
 
     const officeLongitude = toNumberOrNull(
-      body.officeLongitude ?? body.office_longitude
+      body.officeLongitude ?? body.office_longitude,
     );
 
     const allowedRadiusMeters = Math.max(
       toNumber(body.allowedRadiusMeters ?? body.allowed_radius_meters, 100),
-      1
+      1,
     );
 
     const lateToleranceMinutes = Math.max(
       toNumber(body.lateToleranceMinutes ?? body.late_tolerance_minutes, 0),
-      0
+      0,
     );
 
     const penaltyIntervalMinutes = Math.max(
       toNumber(body.penaltyIntervalMinutes ?? body.penalty_interval_minutes, 60),
-      1
+      1,
     );
 
     const penaltyPointsPerInterval = Math.max(
       toNumber(
         body.penaltyPointsPerInterval ?? body.penalty_points_per_interval,
-        1
+        1,
       ),
-      0
+      0,
     );
 
     const maxLatePenaltyPoints = Math.max(
       toNumber(body.maxLatePenaltyPoints ?? body.max_late_penalty_points, 8),
-      0
+      0,
     );
 
     const absentPenaltyPoints = Math.max(
       toNumber(body.absentPenaltyPoints ?? body.absent_penalty_points, 8),
-      0
+      0,
     );
 
     const isActive =
@@ -156,7 +144,7 @@ export async function POST(request: NextRequest) {
     if (!isAllRole(role) && !isAllowedRole(role)) {
       return errorResponse(
         `Role tidak valid. Role yang tersedia: ${ALL_ROLES.join(", ")}`,
-        400
+        400,
       );
     }
 
@@ -175,7 +163,6 @@ export async function POST(request: NextRequest) {
     }
 
     const targetRoles = isAllRole(role) ? ALL_ROLES : [role];
-
     const savedSettings = [];
 
     for (const targetRole of targetRoles) {
@@ -224,13 +211,12 @@ export async function POST(request: NextRequest) {
 
     return successResponse({
       message: isAllRole(role)
-        ? "Aturan berhasil diterapkan ke semua role pekerja"
-        : `Setting absensi role ${role.toUpperCase()} berhasil disimpan`,
-      data: isAllRole(role) ? savedSettings : savedSettings[0],
+        ? "Setting absensi semua role berhasil disimpan"
+        : "Setting absensi berhasil disimpan",
+      data: savedSettings,
     });
   } catch (error) {
-    console.error("CREATE ATTENDANCE SETTING ERROR:", error);
-
+    console.error("CREATE MANAGER ATTENDANCE SETTING ERROR:", error);
     return errorResponse("Gagal menyimpan setting absensi", 500);
   }
 }
