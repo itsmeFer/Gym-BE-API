@@ -1,76 +1,95 @@
 import { DataTypes, Model, Optional } from "sequelize";
 import { sequelize } from "@/database/connection";
 
-export const MEMBERSHIP_CUSTOMER_CATEGORIES = [
-  "prima_grup",
-  "non_prima_grup",
-] as const;
-
-export type MembershipCustomerCategory =
-  (typeof MEMBERSHIP_CUSTOMER_CATEGORIES)[number];
-
-export interface MembershipPlanAttributes {
+export interface MembershipAttributes {
   id: number;
-  programName: string;
-  customerCategory: MembershipCustomerCategory;
-  packageCode: string;
-  name: string;
-  description: string | null;
-  imageUrl: string | null;
-  price: number;
-  durationDays: number;
-  discountPercent: number;
-  personalTrainerSessions: number;
-  pilatesSessions: number;
-  freeMembershipDays: number;
-  benefits: string[];
-  isActive: boolean;
+
+  userId: number;
+  salesUserId: number | null;
+  planId: number | null;
+
+  packageName: string;
+  packagePrice: number;
+
+  paymentMethod: string;
+  paymentStatus: string;
+  paidAmount: number;
+  paidAt: Date | null;
+  paymentProofPhoto: string | null;
+
+  memberStatus: string;
+  salesStatus: string;
+
+  startedAt: Date | null;
+  expiredAt: Date | null;
+
+  userScheduleSet: boolean;
+  scheduleEditCount: number;
+
+  notes: string | null;
+
   createdAt?: Date;
   updatedAt?: Date;
 }
 
-export type MembershipPlanCreationAttributes = Optional<
-  MembershipPlanAttributes,
+export type MembershipCreationAttributes = Optional<
+  MembershipAttributes,
   | "id"
-  | "description"
-  | "imageUrl"
-  | "price"
-  | "durationDays"
-  | "discountPercent"
-  | "personalTrainerSessions"
-  | "pilatesSessions"
-  | "freeMembershipDays"
-  | "benefits"
-  | "isActive"
+  | "salesUserId"
+  | "planId"
+  | "packageName"
+  | "packagePrice"
+  | "paymentMethod"
+  | "paymentStatus"
+  | "paidAmount"
+  | "paidAt"
+  | "paymentProofPhoto"
+  | "memberStatus"
+  | "salesStatus"
+  | "startedAt"
+  | "expiredAt"
+  | "userScheduleSet"
+  | "scheduleEditCount"
+  | "notes"
   | "createdAt"
   | "updatedAt"
 >;
 
-class MembershipPlan
-  extends Model<MembershipPlanAttributes, MembershipPlanCreationAttributes>
-  implements MembershipPlanAttributes
+class Membership
+  extends Model<MembershipAttributes, MembershipCreationAttributes>
+  implements MembershipAttributes
 {
   declare id: number;
-  declare programName: string;
-  declare customerCategory: MembershipCustomerCategory;
-  declare packageCode: string;
-  declare name: string;
-  declare description: string | null;
-  declare imageUrl: string | null;
-  declare price: number;
-  declare durationDays: number;
-  declare discountPercent: number;
-  declare personalTrainerSessions: number;
-  declare pilatesSessions: number;
-  declare freeMembershipDays: number;
-  declare benefits: string[];
-  declare isActive: boolean;
+
+  declare userId: number;
+  declare salesUserId: number | null;
+  declare planId: number | null;
+
+  declare packageName: string;
+  declare packagePrice: number;
+
+  declare paymentMethod: string;
+  declare paymentStatus: string;
+  declare paidAmount: number;
+  declare paidAt: Date | null;
+  declare paymentProofPhoto: string | null;
+
+  declare memberStatus: string;
+  declare salesStatus: string;
+
+  declare startedAt: Date | null;
+  declare expiredAt: Date | null;
+
+  declare userScheduleSet: boolean;
+  declare scheduleEditCount: number;
+
+  declare notes: string | null;
 
   declare readonly createdAt: Date;
   declare readonly updatedAt: Date;
 }
 
-MembershipPlan.init(
+Membership.init(
   {
     id: {
       type: DataTypes.INTEGER,
@@ -78,107 +97,123 @@ MembershipPlan.init(
       primaryKey: true,
     },
 
-    programName: {
-      type: DataTypes.STRING,
+    userId: {
+      type: DataTypes.INTEGER,
       allowNull: false,
-      field: "program_name",
+      field: "user_id",
     },
 
-    customerCategory: {
-      type: DataTypes.STRING,
-      allowNull: false,
-      field: "customer_category",
-      validate: {
-        isIn: {
-          args: [[...MEMBERSHIP_CUSTOMER_CATEGORIES]],
-          msg: "Customer category hanya boleh prima_grup atau non_prima_grup",
-        },
-      },
+    salesUserId: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      field: "sales_user_id",
     },
 
-    packageCode: {
-      type: DataTypes.STRING,
-      allowNull: false,
-      field: "package_code",
+    planId: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      field: "plan_id",
     },
 
-    name: {
+    packageName: {
       type: DataTypes.STRING,
       allowNull: false,
+      defaultValue: "Membership",
+      field: "package_name",
     },
 
-    description: {
+    packagePrice: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 0,
+      field: "package_price",
+    },
+
+    paymentMethod: {
+      type: DataTypes.STRING,
+      allowNull: false,
+      defaultValue: "cashier",
+      field: "payment_method",
+    },
+
+    paymentStatus: {
+      type: DataTypes.STRING,
+      allowNull: false,
+      defaultValue: "unpaid",
+      field: "payment_status",
+    },
+
+    paidAmount: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 0,
+      field: "paid_amount",
+    },
+
+    paidAt: {
+      type: DataTypes.DATE,
+      allowNull: true,
+      field: "paid_at",
+    },
+
+    paymentProofPhoto: {
       type: DataTypes.TEXT,
       allowNull: true,
+      field: "payment_proof_photo",
     },
 
-    imageUrl: {
-      type: DataTypes.TEXT,
+    memberStatus: {
+      type: DataTypes.STRING,
+      allowNull: false,
+      defaultValue: "pending",
+      field: "member_status",
+    },
+
+    salesStatus: {
+      type: DataTypes.STRING,
+      allowNull: false,
+      defaultValue: "pending",
+      field: "sales_status",
+    },
+
+    startedAt: {
+      type: DataTypes.DATE,
       allowNull: true,
-      field: "image_url",
+      field: "started_at",
     },
 
-    price: {
-      type: DataTypes.INTEGER,
-      allowNull: false,
-      defaultValue: 0,
+    expiredAt: {
+      type: DataTypes.DATE,
+      allowNull: true,
+      field: "expired_at",
     },
 
-    durationDays: {
-      type: DataTypes.INTEGER,
-      allowNull: false,
-      defaultValue: 30,
-      field: "duration_days",
-    },
-
-    discountPercent: {
-      type: DataTypes.INTEGER,
-      allowNull: false,
-      defaultValue: 0,
-      field: "discount_percent",
-    },
-
-    personalTrainerSessions: {
-      type: DataTypes.INTEGER,
-      allowNull: false,
-      defaultValue: 0,
-      field: "personal_trainer_sessions",
-    },
-
-    pilatesSessions: {
-      type: DataTypes.INTEGER,
-      allowNull: false,
-      defaultValue: 0,
-      field: "pilates_sessions",
-    },
-
-    freeMembershipDays: {
-      type: DataTypes.INTEGER,
-      allowNull: false,
-      defaultValue: 0,
-      field: "free_membership_days",
-    },
-
-    benefits: {
-      type: DataTypes.JSONB,
-      allowNull: false,
-      defaultValue: [],
-    },
-
-    isActive: {
+    userScheduleSet: {
       type: DataTypes.BOOLEAN,
       allowNull: false,
-      defaultValue: true,
-      field: "is_active",
+      defaultValue: false,
+      field: "user_schedule_set",
+    },
+
+    scheduleEditCount: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 0,
+      field: "schedule_edit_count",
+    },
+
+    notes: {
+      type: DataTypes.TEXT,
+      allowNull: true,
     },
   },
   {
     sequelize,
-    tableName: "membership_plans",
-    modelName: "MembershipPlan",
+    tableName: "memberships",
+    modelName: "Membership",
     timestamps: true,
     underscored: true,
-  },
+  }
 );
 
-export default MembershipPlan;
+export default Membership;
