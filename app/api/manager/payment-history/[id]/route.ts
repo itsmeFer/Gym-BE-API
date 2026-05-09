@@ -8,39 +8,128 @@ function toNumber(value: unknown, defaultValue = 0) {
   return Number.isFinite(number) ? number : defaultValue;
 }
 
+function normalizeRole(value: unknown) {
+  return String(value ?? "").trim().toLowerCase();
+}
+
+function normalizePaymentMethod(value: unknown) {
+  const method = String(value ?? "").trim().toLowerCase();
+
+  const allowed = [
+    "cash",
+    "cashier",
+    "transfer",
+    "qris",
+    "debit",
+    "credit",
+    "cashless",
+  ];
+
+  return allowed.includes(method) ? method : null;
+}
+
+function parseDateOrNull(value: unknown) {
+  const text = String(value ?? "").trim();
+
+  if (!text) return null;
+
+  const date = new Date(text);
+
+  if (Number.isNaN(date.getTime())) return null;
+
+  return date;
+}
+
+function serializeUser(user: any) {
+  if (!user) return null;
+
+  const data = user?.get ? user.get({ plain: true }) : user;
+
+  return {
+    id: data.id,
+    name: data.name ?? "",
+    email: data.email ?? "",
+    phone: data.phone ?? "",
+    role: data.role ?? "",
+    points: Number(data.points ?? 0),
+    maxPoints: Number(data.maxPoints ?? data.max_points ?? 0),
+    isActive: data.isActive ?? data.is_active ?? true,
+    createdAt: data.createdAt ?? data.created_at ?? null,
+    updatedAt: data.updatedAt ?? data.updated_at ?? null,
+  };
+}
+
+function serializePlan(plan: any) {
+  if (!plan) return null;
+
+  const data = plan?.get ? plan.get({ plain: true }) : plan;
+
+  return {
+    id: data.id,
+    programName: data.programName ?? data.program_name ?? "",
+    customerCategory: data.customerCategory ?? data.customer_category ?? "",
+    packageCode: data.packageCode ?? data.package_code ?? "",
+    name: data.name ?? "",
+    description: data.description ?? "",
+    imageUrl: data.imageUrl ?? data.image_url ?? null,
+    price: Number(data.price ?? 0),
+    durationDays: Number(data.durationDays ?? data.duration_days ?? 0),
+    discountPercent: Number(
+      data.discountPercent ?? data.discount_percent ?? 0
+    ),
+    personalTrainerSessions: Number(
+      data.personalTrainerSessions ?? data.personal_trainer_sessions ?? 0
+    ),
+    pilatesSessions: Number(data.pilatesSessions ?? data.pilates_sessions ?? 0),
+    freeMembershipDays: Number(
+      data.freeMembershipDays ?? data.free_membership_days ?? 0
+    ),
+    benefits: Array.isArray(data.benefits) ? data.benefits : [],
+    isActive: data.isActive ?? data.is_active ?? true,
+    createdAt: data.createdAt ?? data.created_at ?? null,
+    updatedAt: data.updatedAt ?? data.updated_at ?? null,
+  };
+}
+
 function serializeHistory(membership: any) {
   const data = membership?.get ? membership.get({ plain: true }) : membership;
 
   return {
     id: data?.id,
-    userId: data?.userId,
-    salesUserId: data?.salesUserId,
-    planId: data?.planId,
+    userId: data?.userId ?? data?.user_id,
+    salesUserId: data?.salesUserId ?? data?.sales_user_id,
+    processedByUserId: data?.processedByUserId ?? data?.processed_by_user_id,
+    planId: data?.planId ?? data?.plan_id,
 
-    packageName: data?.packageName,
-    packagePrice: Number(data?.packagePrice ?? 0),
+    packageName: data?.packageName ?? data?.package_name ?? "",
+    packagePrice: Number(data?.packagePrice ?? data?.package_price ?? 0),
 
-    paymentMethod: data?.paymentMethod,
-    paymentStatus: data?.paymentStatus,
-    paidAmount: Number(data?.paidAmount ?? 0),
-    paidAt: data?.paidAt,
+    paymentMethod: data?.paymentMethod ?? data?.payment_method ?? "",
+    paymentStatus: data?.paymentStatus ?? data?.payment_status ?? "",
+    paidAmount: Number(data?.paidAmount ?? data?.paid_amount ?? 0),
+    paidAt: data?.paidAt ?? data?.paid_at ?? null,
 
     paymentProofPhoto:
       data?.paymentProofPhoto ?? data?.payment_proof_photo ?? null,
 
-    memberStatus: data?.memberStatus,
-    salesStatus: data?.salesStatus ?? "pending",
+    memberStatus: data?.memberStatus ?? data?.member_status ?? "",
+    salesStatus: data?.salesStatus ?? data?.sales_status ?? "pending",
 
-    startedAt: data?.startedAt,
-    expiredAt: data?.expiredAt,
+    startedAt: data?.startedAt ?? data?.started_at ?? null,
+    expiredAt: data?.expiredAt ?? data?.expired_at ?? null,
 
-    notes: data?.notes,
-    createdAt: data?.createdAt,
-    updatedAt: data?.updatedAt,
+    userScheduleSet: data?.userScheduleSet ?? data?.user_schedule_set ?? false,
+    scheduleEditCount:
+      data?.scheduleEditCount ?? data?.schedule_edit_count ?? 0,
 
-    user: data?.user ?? null,
-    sales: data?.sales ?? null,
-    plan: data?.plan ?? null,
+    notes: data?.notes ?? null,
+    createdAt: data?.createdAt ?? data?.created_at ?? null,
+    updatedAt: data?.updatedAt ?? data?.updated_at ?? null,
+
+    user: serializeUser(data?.user),
+    sales: serializeUser(data?.sales),
+    processedBy: serializeUser(data?.processedBy),
+    plan: serializePlan(data?.plan),
   };
 }
 
@@ -50,12 +139,47 @@ async function findHistoryWithRelations(id: number) {
       {
         model: User,
         as: "user",
-        attributes: ["id", "name", "email", "phone", "role", "isActive"],
+        attributes: [
+          "id",
+          "name",
+          "email",
+          "phone",
+          "role",
+          "points",
+          "maxPoints",
+          "isActive",
+          "createdAt",
+          "updatedAt",
+        ],
       },
       {
         model: User,
         as: "sales",
-        attributes: ["id", "name", "email", "phone", "role"],
+        attributes: [
+          "id",
+          "name",
+          "email",
+          "phone",
+          "role",
+          "isActive",
+          "createdAt",
+          "updatedAt",
+        ],
+        required: false,
+      },
+      {
+        model: User,
+        as: "processedBy",
+        attributes: [
+          "id",
+          "name",
+          "email",
+          "phone",
+          "role",
+          "isActive",
+          "createdAt",
+          "updatedAt",
+        ],
         required: false,
       },
       {
@@ -67,26 +191,9 @@ async function findHistoryWithRelations(id: number) {
   });
 }
 
-function normalizePaymentMethod(value: unknown) {
-  const method = String(value ?? "").trim().toLowerCase();
-  const allowed = ["cash", "transfer", "qris", "debit", "credit"];
-
-  return allowed.includes(method) ? method : null;
-}
-
-function parseDateOrNull(value: unknown) {
-  const text = String(value ?? "").trim();
-  if (!text) return null;
-
-  const date = new Date(text);
-  if (Number.isNaN(date.getTime())) return null;
-
-  return date;
-}
-
 export async function GET(
   request: NextRequest,
-  context: { params: Promise<{ id: string }> },
+  context: { params: Promise<{ id: string }> }
 ) {
   try {
     const { id } = await context.params;
@@ -103,18 +210,18 @@ export async function GET(
     }
 
     return successResponse({
-      message: "Detail riwayat pembayaran berhasil diambil",
+      message: "Detail riwayat pembayaran manager berhasil diambil",
       data: serializeHistory(history),
     });
   } catch (error) {
     console.error("GET MANAGER PAYMENT HISTORY DETAIL ERROR:", error);
-    return errorResponse("Gagal mengambil detail riwayat pembayaran", 500);
+    return errorResponse("Gagal mengambil detail riwayat pembayaran manager", 500);
   }
 }
 
 export async function PUT(
   request: NextRequest,
-  context: { params: Promise<{ id: string }> },
+  context: { params: Promise<{ id: string }> }
 ) {
   try {
     const { id } = await context.params;
@@ -126,28 +233,28 @@ export async function PUT(
 
     const body = await request.json();
 
-    const managerUserId = toNumber(
-      body.managerUserId ??
-        body.manager_user_id ??
-        body.adminUserId ??
-        body.admin_user_id,
-      0,
+    const adminUserId = toNumber(
+      body.adminUserId ??
+        body.admin_user_id ??
+        body.processedByUserId ??
+        body.processed_by_user_id,
+      0
     );
 
-    if (!managerUserId) {
-      return errorResponse("Manager user wajib dikirim", 400);
+    if (!adminUserId) {
+      return errorResponse("Admin user wajib dikirim", 400);
     }
 
-    const manager = await User.findByPk(managerUserId);
+    const admin = await User.findByPk(adminUserId);
 
-    if (!manager) {
-      return errorResponse("Manager tidak ditemukan", 404);
+    if (!admin) {
+      return errorResponse("Admin tidak ditemukan", 404);
     }
 
-    const managerRole = String(manager.get("role") ?? "").toLowerCase();
+    const adminRole = normalizeRole(admin.get("role"));
 
-    if (managerRole !== "manager") {
-      return errorResponse("User ini bukan manager", 403);
+    if (adminRole !== "admin") {
+      return errorResponse("User yang memproses pembayaran wajib role admin", 403);
     }
 
     const history = await Membership.findByPk(historyId);
@@ -156,16 +263,9 @@ export async function PUT(
       return errorResponse("Riwayat pembayaran tidak ditemukan", 404);
     }
 
-    if (history.paymentStatus !== "paid") {
-      return errorResponse(
-        "Hanya riwayat yang sudah paid yang bisa diedit manager",
-        400,
-      );
-    }
-
     const paidAmount = toNumber(
       body.paidAmount ?? body.paid_amount ?? history.paidAmount,
-      history.paidAmount,
+      history.paidAmount
     );
 
     if (!paidAmount || paidAmount <= 0) {
@@ -177,7 +277,9 @@ export async function PUT(
       history.paymentMethod;
 
     const paidAt =
-      parseDateOrNull(body.paidAt ?? body.paid_at) ?? history.paidAt;
+      parseDateOrNull(body.paidAt ?? body.paid_at) ??
+      history.paidAt ??
+      new Date();
 
     const startedAt =
       parseDateOrNull(body.startedAt ?? body.started_at) ?? history.startedAt;
@@ -203,12 +305,15 @@ export async function PUT(
     if (
       !paymentProofPhoto.startsWith("data:image/") &&
       !paymentProofPhoto.startsWith("http://") &&
-      !paymentProofPhoto.startsWith("https://")
+      !paymentProofPhoto.startsWith("https://") &&
+      !paymentProofPhoto.startsWith("/uploads/") &&
+      !paymentProofPhoto.startsWith("uploads/")
     ) {
       return errorResponse("Format foto bukti pembayaran tidak valid", 400);
     }
 
     await history.update({
+      paymentStatus: "paid",
       paidAmount,
       paymentMethod,
       paidAt,
@@ -216,16 +321,17 @@ export async function PUT(
       expiredAt,
       notes,
       paymentProofPhoto,
+      processedByUserId: adminUserId,
     });
 
     const freshHistory = await findHistoryWithRelations(history.id);
 
     return successResponse({
-      message: "Riwayat pembayaran berhasil diupdate",
+      message: "Pembayaran berhasil diproses oleh admin",
       data: serializeHistory(freshHistory),
     });
   } catch (error) {
     console.error("UPDATE MANAGER PAYMENT HISTORY ERROR:", error);
-    return errorResponse("Gagal update riwayat pembayaran", 500);
+    return errorResponse("Gagal update riwayat pembayaran manager", 500);
   }
 }

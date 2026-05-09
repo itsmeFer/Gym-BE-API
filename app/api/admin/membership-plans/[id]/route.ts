@@ -2,7 +2,9 @@ import { NextRequest } from "next/server";
 import { MembershipPlan } from "@/database/models";
 import { errorResponse, successResponse } from "@/lib/response";
 
-type CustomerCategory = "prima_grup" | "non_prima_grup";
+const CUSTOMER_CATEGORIES = ["prima_grup", "non_prima_grup"] as const;
+
+type CustomerCategory = (typeof CUSTOMER_CATEGORIES)[number];
 
 function toNumberOrUndefined(value: unknown) {
   if (value === undefined || value === null || value === "") {
@@ -13,18 +15,20 @@ function toNumberOrUndefined(value: unknown) {
   return Number.isFinite(number) ? number : undefined;
 }
 
-function normalizeCustomerCategory(value: unknown): CustomerCategory | undefined {
-  if (value === undefined || value === null || value === "") {
-    return undefined;
-  }
+function normalizeCustomerCategory(value: unknown): CustomerCategory | null {
+  const text = String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "_")
+    .replace(/-/g, "_");
 
-  const category = String(value).trim().toLowerCase();
+  if (text === "prima_group") return "prima_grup";
+  if (text === "non_prima_group") return "non_prima_grup";
 
-  if (category === "prima_grup" || category === "non_prima_grup") {
-    return category;
-  }
+  if (text === "prima_grup") return "prima_grup";
+  if (text === "non_prima_grup") return "non_prima_grup";
 
-  return undefined;
+  return null;
 }
 
 export async function GET(
@@ -41,12 +45,11 @@ export async function GET(
     }
 
     return successResponse({
-      message: "Membership plan detail fetched successfully",
+      message: "Detail membership plan berhasil diambil",
       data: plan,
     });
   } catch (error) {
-    console.error("GET MEMBERSHIP PLAN DETAIL ERROR:", error);
-
+    console.error("GET ADMIN MEMBERSHIP PLAN DETAIL ERROR:", error);
     return errorResponse("Gagal mengambil detail membership plan", 500);
   }
 }
@@ -70,7 +73,10 @@ export async function PUT(
         ? String(body.programName).trim()
         : undefined;
 
-    const customerCategory = normalizeCustomerCategory(body.customerCategory);
+    const customerCategory =
+      body.customerCategory !== undefined
+        ? normalizeCustomerCategory(body.customerCategory)
+        : undefined;
 
     const packageCode =
       body.packageCode !== undefined
@@ -81,18 +87,14 @@ export async function PUT(
       body.name !== undefined ? String(body.name).trim() : undefined;
 
     const description =
-      body.description !== undefined && body.description !== null
-        ? String(body.description).trim()
-        : body.description === null
-          ? null
-          : undefined;
+      body.description !== undefined
+        ? String(body.description ?? "").trim() || null
+        : undefined;
 
     const imageUrl =
-      body.imageUrl !== undefined && body.imageUrl !== null
-        ? String(body.imageUrl).trim()
-        : body.imageUrl === null
-          ? null
-          : undefined;
+      body.imageUrl !== undefined
+        ? String(body.imageUrl ?? "").trim() || null
+        : undefined;
 
     const price = toNumberOrUndefined(body.price);
     const durationDays = toNumberOrUndefined(body.durationDays);
@@ -104,9 +106,7 @@ export async function PUT(
 
     const pilatesSessions = toNumberOrUndefined(body.pilatesSessions);
 
-    const freeMembershipDays = toNumberOrUndefined(
-      body.freeMembershipDays ?? body.freeMembershipMonths
-    );
+    const freeMembershipDays = toNumberOrUndefined(body.freeMembershipDays);
 
     const benefits =
       body.benefits !== undefined && Array.isArray(body.benefits)
@@ -120,23 +120,62 @@ export async function PUT(
         ? body.isActive
         : undefined;
 
+    if (programName !== undefined && !programName) {
+      return errorResponse("Program name wajib diisi", 400);
+    }
+
+    if (body.customerCategory !== undefined && customerCategory === null) {
+      return errorResponse(
+        "Customer category hanya boleh prima_grup atau non_prima_grup",
+        400
+      );
+    }
+
+    if (packageCode !== undefined && !packageCode) {
+      return errorResponse("Package code wajib diisi", 400);
+    }
+
+    if (name !== undefined && !name) {
+      return errorResponse("Nama paket wajib diisi", 400);
+    }
+
     await plan.update({
       ...(programName !== undefined && { programName }),
-      ...(customerCategory !== undefined && { customerCategory }),
+
+      ...(customerCategory !== undefined &&
+        customerCategory !== null && {
+          customerCategory,
+        }),
+
       ...(packageCode !== undefined && { packageCode }),
       ...(name !== undefined && { name }),
       ...(description !== undefined && { description }),
       ...(imageUrl !== undefined && { imageUrl }),
-      ...(price !== undefined && { price }),
-      ...(durationDays !== undefined && { durationDays }),
-      ...(discountPercent !== undefined && { discountPercent }),
+
+      ...(price !== undefined && {
+        price: Math.max(price, 0),
+      }),
+
+      ...(durationDays !== undefined && {
+        durationDays: Math.max(durationDays, 1),
+      }),
+
+      ...(discountPercent !== undefined && {
+        discountPercent: Math.max(discountPercent, 0),
+      }),
+
       ...(personalTrainerSessions !== undefined && {
-        personalTrainerSessions,
+        personalTrainerSessions: Math.max(personalTrainerSessions, 0),
       }),
-      ...(pilatesSessions !== undefined && { pilatesSessions }),
+
+      ...(pilatesSessions !== undefined && {
+        pilatesSessions: Math.max(pilatesSessions, 0),
+      }),
+
       ...(freeMembershipDays !== undefined && {
-        freeMembershipDays,
+        freeMembershipDays: Math.max(freeMembershipDays, 0),
       }),
+
       ...(benefits !== undefined && { benefits }),
       ...(isActive !== undefined && { isActive }),
     });
@@ -148,8 +187,7 @@ export async function PUT(
       data: updatedPlan,
     });
   } catch (error) {
-    console.error("UPDATE MEMBERSHIP PLAN ERROR:", error);
-
+    console.error("UPDATE ADMIN MEMBERSHIP PLAN ERROR:", error);
     return errorResponse("Gagal update membership plan", 500);
   }
 }
@@ -174,8 +212,7 @@ export async function DELETE(
       data: null,
     });
   } catch (error) {
-    console.error("DELETE MEMBERSHIP PLAN ERROR:", error);
-
+    console.error("DELETE ADMIN MEMBERSHIP PLAN ERROR:", error);
     return errorResponse("Gagal hapus membership plan", 500);
   }
 }

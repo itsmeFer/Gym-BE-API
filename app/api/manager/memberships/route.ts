@@ -54,10 +54,11 @@ export async function GET() {
             "packageCode",
             "name",
             "price",
+            "durationDays",
             "discountPercent",
             "personalTrainerSessions",
             "pilatesSessions",
-            "freeMembershipMonths",
+            "freeMembershipDays",
             "benefits",
             "isActive",
           ],
@@ -68,31 +69,33 @@ export async function GET() {
     });
 
     const plainMemberships = memberships.map((item) =>
-      item.get({ plain: true }),
+      item.get({ plain: true })
     );
 
     const countedMemberships = plainMemberships.filter(
-      (item: any) => !isRevokedMembership(item.memberStatus),
+      (item: any) => !isRevokedMembership(item.memberStatus)
     );
 
     const total = countedMemberships.length;
 
     const paid = countedMemberships.filter(
-      (item: any) => normalizeStatus(item.paymentStatus) === "paid",
+      (item: any) => normalizeStatus(item.paymentStatus) === "paid"
     ).length;
 
     const active = countedMemberships.filter(
-      (item: any) => normalizeStatus(item.memberStatus) === "active",
+      (item: any) => normalizeStatus(item.memberStatus) === "active"
     ).length;
 
     const revoked = plainMemberships.filter((item: any) =>
-      isRevokedMembership(item.memberStatus),
+      isRevokedMembership(item.memberStatus)
     ).length;
 
     const totalRevenue = countedMemberships.reduce((sum: number, item: any) => {
       const paymentStatus = normalizeStatus(item.paymentStatus);
 
-      if (paymentStatus !== "paid") return sum;
+      if (paymentStatus !== "paid") {
+        return sum;
+      }
 
       const paidAmount = toNumber(item.paidAmount);
       const packagePrice = toNumber(item.packagePrice);
@@ -106,7 +109,7 @@ export async function GET() {
         result[key] = (result[key] ?? 0) + 1;
         return result;
       },
-      {},
+      {}
     );
 
     const memberStatusChart = countedMemberships.reduce(
@@ -115,7 +118,7 @@ export async function GET() {
         result[key] = (result[key] ?? 0) + 1;
         return result;
       },
-      {},
+      {}
     );
 
     const salesChartRaw = countedMemberships.reduce(
@@ -124,13 +127,13 @@ export async function GET() {
         result[salesName] = (result[salesName] ?? 0) + 1;
         return result;
       },
-      {},
+      {}
     );
 
     const salesChart = Object.fromEntries(
       Object.entries(salesChartRaw)
         .sort((a, b) => b[1] - a[1])
-        .slice(0, 5),
+        .slice(0, 5)
     );
 
     return successResponse({
@@ -151,4 +154,4 @@ export async function GET() {
     console.error("GET MANAGER MEMBERSHIPS ERROR:", error);
     return errorResponse("Gagal mengambil data membership", 500);
   }
-}
+} 

@@ -14,39 +14,88 @@ function addDays(date: Date, days: number) {
   return copy;
 }
 
+function serializeUser(user: any) {
+  if (!user) return null;
+
+  const data = user?.get ? user.get({ plain: true }) : user;
+
+  return {
+    id: data?.id,
+    name: data?.name ?? "",
+    email: data?.email ?? "",
+    phone: data?.phone ?? "",
+    role: data?.role ?? "",
+    isActive: data?.isActive ?? data?.is_active ?? true,
+  };
+}
+
+function serializePlan(plan: any) {
+  if (!plan) return null;
+
+  const data = plan?.get ? plan.get({ plain: true }) : plan;
+
+  return {
+    id: data?.id,
+    programName: data?.programName ?? data?.program_name ?? "",
+    customerCategory: data?.customerCategory ?? data?.customer_category ?? "",
+    packageCode: data?.packageCode ?? data?.package_code ?? "",
+    name: data?.name ?? "",
+    description: data?.description ?? "",
+    imageUrl: data?.imageUrl ?? data?.image_url ?? null,
+    price: Number(data?.price ?? 0),
+    durationDays: Number(data?.durationDays ?? data?.duration_days ?? 0),
+    discountPercent: Number(
+      data?.discountPercent ?? data?.discount_percent ?? 0
+    ),
+    personalTrainerSessions: Number(
+      data?.personalTrainerSessions ?? data?.personal_trainer_sessions ?? 0
+    ),
+    pilatesSessions: Number(data?.pilatesSessions ?? data?.pilates_sessions ?? 0),
+    freeMembershipDays: Number(
+      data?.freeMembershipDays ?? data?.free_membership_days ?? 0
+    ),
+    benefits: Array.isArray(data?.benefits) ? data.benefits : [],
+    isActive: data?.isActive ?? data?.is_active ?? true,
+    createdAt: data?.createdAt ?? data?.created_at ?? null,
+    updatedAt: data?.updatedAt ?? data?.updated_at ?? null,
+  };
+}
+
 function serializePayment(membership: any) {
   const data = membership?.get ? membership.get({ plain: true }) : membership;
 
   return {
     id: data?.id,
-    userId: data?.userId,
-    salesUserId: data?.salesUserId,
-    planId: data?.planId,
+    userId: data?.userId ?? data?.user_id,
+    salesUserId: data?.salesUserId ?? data?.sales_user_id,
+    processedByUserId: data?.processedByUserId ?? data?.processed_by_user_id,
+    planId: data?.planId ?? data?.plan_id,
 
-    packageName: data?.packageName,
-    packagePrice: Number(data?.packagePrice ?? 0),
+    packageName: data?.packageName ?? data?.package_name,
+    packagePrice: Number(data?.packagePrice ?? data?.package_price ?? 0),
 
-    paymentMethod: data?.paymentMethod,
-    paymentStatus: data?.paymentStatus,
-    paidAmount: Number(data?.paidAmount ?? 0),
-    paidAt: data?.paidAt,
+    paymentMethod: data?.paymentMethod ?? data?.payment_method,
+    paymentStatus: data?.paymentStatus ?? data?.payment_status,
+    paidAmount: Number(data?.paidAmount ?? data?.paid_amount ?? 0),
+    paidAt: data?.paidAt ?? data?.paid_at,
 
     paymentProofPhoto:
       data?.paymentProofPhoto ?? data?.payment_proof_photo ?? null,
 
-    memberStatus: data?.memberStatus,
-    salesStatus: data?.salesStatus ?? "pending",
+    memberStatus: data?.memberStatus ?? data?.member_status,
+    salesStatus: data?.salesStatus ?? data?.sales_status ?? "pending",
 
-    startedAt: data?.startedAt,
-    expiredAt: data?.expiredAt,
+    startedAt: data?.startedAt ?? data?.started_at,
+    expiredAt: data?.expiredAt ?? data?.expired_at,
 
     notes: data?.notes,
-    createdAt: data?.createdAt,
-    updatedAt: data?.updatedAt,
+    createdAt: data?.createdAt ?? data?.created_at,
+    updatedAt: data?.updatedAt ?? data?.updated_at,
 
-    user: data?.user ?? null,
-    sales: data?.sales ?? null,
-    plan: data?.plan ?? null,
+    user: serializeUser(data?.user),
+    sales: serializeUser(data?.sales),
+    processedBy: serializeUser(data?.processedBy),
+    plan: serializePlan(data?.plan),
   };
 }
 
@@ -65,6 +114,12 @@ async function findPaymentWithRelations(id: number) {
         required: false,
       },
       {
+        model: User,
+        as: "processedBy",
+        attributes: ["id", "name", "email", "phone", "role", "isActive"],
+        required: false,
+      },
+      {
         model: MembershipPlan,
         as: "plan",
         required: false,
@@ -76,7 +131,7 @@ async function findPaymentWithRelations(id: number) {
 /**
  * POST /api/admin/payments/:id/pay
  *
- * Admin/kasir memproses pembayaran.
+ * Admin memproses pembayaran.
  *
  * Body:
  * {
@@ -104,8 +159,8 @@ export async function POST(
     const adminUserId = toNumber(
       body.adminUserId ??
         body.admin_user_id ??
-        body.cashierUserId ??
-        body.cashier_user_id,
+        body.processedByUserId ??
+        body.processed_by_user_id,
       0
     );
 
@@ -117,12 +172,7 @@ export async function POST(
       .trim()
       .toLowerCase();
 
-    const adminNote =
-      body.adminNote ??
-      body.admin_note ??
-      body.cashierNote ??
-      body.cashier_note;
-
+    const adminNote = body.adminNote ?? body.admin_note;
     const cleanAdminNote = adminNote ? String(adminNote).trim() : null;
 
     const paymentProofPhoto = String(
@@ -144,22 +194,26 @@ export async function POST(
     if (
       !paymentProofPhoto.startsWith("data:image/") &&
       !paymentProofPhoto.startsWith("http://") &&
-      !paymentProofPhoto.startsWith("https://")
+      !paymentProofPhoto.startsWith("https://") &&
+      !paymentProofPhoto.startsWith("/uploads/") &&
+      !paymentProofPhoto.startsWith("uploads/")
     ) {
       return errorResponse("Format foto bukti pembayaran tidak valid", 400);
     }
 
     const allowedPaymentMethods = [
       "cash",
+      "cashier",
       "transfer",
       "qris",
       "debit",
       "credit",
+      "cashless",
     ];
 
     if (!allowedPaymentMethods.includes(paymentMethod)) {
       return errorResponse(
-        "Metode pembayaran hanya boleh cash, transfer, qris, debit, atau credit",
+        "Metode pembayaran hanya boleh cash, transfer, qris, debit, credit, cashier, atau cashless",
         400
       );
     }
@@ -172,8 +226,8 @@ export async function POST(
 
     const adminRole = String(admin.get("role") ?? "").toLowerCase();
 
-    if (adminRole !== "admin" && adminRole !== "kasir") {
-      return errorResponse("User ini bukan admin/kasir", 403);
+    if (adminRole !== "admin") {
+      return errorResponse("User yang memproses pembayaran wajib role admin", 403);
     }
 
     const membership = await Membership.findByPk(paymentId);
@@ -206,6 +260,7 @@ export async function POST(
     }
 
     const durationDays = Math.max(Number(planData?.durationDays ?? 30), 1);
+
     const freeMembershipDays = Math.max(
       Number(planData?.freeMembershipDays ?? 0),
       0
@@ -228,9 +283,11 @@ export async function POST(
       ? `Catatan admin: ${cleanAdminNote}\n${activePeriodNote}`
       : activePeriodNote;
 
+    const processedNote = `Diproses oleh admin: ${admin.get("name")}`;
+
     const newNotes = oldNotes
-      ? `${oldNotes}\n\n${mergedNote}`
-      : mergedNote;
+      ? `${oldNotes}\n\n${mergedNote}\n${processedNote}`
+      : `${mergedNote}\n${processedNote}`;
 
     await membership.update({
       paymentMethod,
@@ -246,13 +303,15 @@ export async function POST(
       startedAt,
       expiredAt,
 
+      processedByUserId: adminUserId,
+
       notes: newNotes,
     });
 
     const freshPayment = await findPaymentWithRelations(membership.id);
 
     return successResponse({
-      message: "Pembayaran berhasil. Membership sudah aktif.",
+      message: "Pembayaran berhasil diproses oleh admin. Membership sudah aktif.",
       data: {
         payment: serializePayment(freshPayment),
       },

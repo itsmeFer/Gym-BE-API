@@ -2,7 +2,9 @@ import { NextRequest } from "next/server";
 import { MembershipPlan } from "@/database/models";
 import { errorResponse, successResponse } from "@/lib/response";
 
-type CustomerCategory = "prima_grup" | "non_prima_grup";
+const CUSTOMER_CATEGORIES = ["prima_grup", "non_prima_grup"] as const;
+
+type CustomerCategory = (typeof CUSTOMER_CATEGORIES)[number];
 
 function toNumber(value: unknown, defaultValue = 0) {
   const number = Number(value);
@@ -10,13 +12,27 @@ function toNumber(value: unknown, defaultValue = 0) {
 }
 
 function normalizeCustomerCategory(value: unknown): CustomerCategory | null {
-  const category = String(value ?? "").trim().toLowerCase();
+  const text = String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "_")
+    .replace(/-/g, "_");
 
-  if (category === "prima_grup" || category === "non_prima_grup") {
-    return category;
-  }
+  if (text === "prima_group") return "prima_grup";
+  if (text === "non_prima_group") return "non_prima_grup";
+
+  if (text === "prima_grup") return "prima_grup";
+  if (text === "non_prima_grup") return "non_prima_grup";
 
   return null;
+}
+
+function normalizeBenefits(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+
+  return value
+    .map((item) => String(item).trim())
+    .filter(Boolean);
 }
 
 export async function GET() {
@@ -26,12 +42,11 @@ export async function GET() {
     });
 
     return successResponse({
-      message: "Membership plans fetched successfully",
+      message: "Membership plans berhasil diambil",
       data: plans,
     });
   } catch (error) {
-    console.error("GET MEMBERSHIP PLANS ERROR:", error);
-
+    console.error("GET ADMIN MEMBERSHIP PLANS ERROR:", error);
     return errorResponse("Gagal mengambil data membership plan", 500);
   }
 }
@@ -47,31 +62,34 @@ export async function POST(request: NextRequest) {
 
     const description =
       body.description !== undefined && body.description !== null
-        ? String(body.description).trim()
+        ? String(body.description).trim() || null
         : null;
 
     const imageUrl =
       body.imageUrl !== undefined && body.imageUrl !== null
-        ? String(body.imageUrl).trim()
+        ? String(body.imageUrl).trim() || null
         : null;
 
-    const price = toNumber(body.price);
-    const durationDays = toNumber(body.durationDays, 30);
-    const discountPercent = toNumber(body.discountPercent);
-    const personalTrainerSessions = toNumber(body.personalTrainerSessions);
-    const pilatesSessions = toNumber(body.pilatesSessions);
+    const price = Math.max(toNumber(body.price), 0);
+    const durationDays = Math.max(toNumber(body.durationDays, 30), 1);
+    const discountPercent = Math.max(toNumber(body.discountPercent), 0);
 
-    const freeMembershipDays = toNumber(
-      body.freeMembershipDays ?? body.freeMembershipMonths
+    const personalTrainerSessions = Math.max(
+      toNumber(body.personalTrainerSessions),
+      0
     );
 
-    const benefits = Array.isArray(body.benefits)
-      ? body.benefits
-          .map((item: unknown) => String(item).trim())
-          .filter(Boolean)
-      : [];
+    const pilatesSessions = Math.max(toNumber(body.pilatesSessions), 0);
 
-    const isActive = typeof body.isActive === "boolean" ? body.isActive : true;
+    const freeMembershipDays = Math.max(
+      toNumber(body.freeMembershipDays),
+      0
+    );
+
+    const benefits = normalizeBenefits(body.benefits);
+
+    const isActive =
+      typeof body.isActive === "boolean" ? body.isActive : true;
 
     if (!programName) {
       return errorResponse("Program name wajib diisi", 400);
@@ -79,7 +97,7 @@ export async function POST(request: NextRequest) {
 
     if (!customerCategory) {
       return errorResponse(
-        "Customer category wajib diisi dan harus prima_grup atau non_prima_grup",
+        "Customer category hanya boleh prima_grup atau non_prima_grup",
         400
       );
     }
@@ -114,8 +132,7 @@ export async function POST(request: NextRequest) {
       data: plan,
     });
   } catch (error) {
-    console.error("CREATE MEMBERSHIP PLAN ERROR:", error);
-
+    console.error("CREATE ADMIN MEMBERSHIP PLAN ERROR:", error);
     return errorResponse("Gagal membuat membership plan", 500);
   }
 }

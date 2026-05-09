@@ -56,8 +56,7 @@ export async function POST(request: NextRequest) {
       },
     });
   } catch (error) {
-    console.error("UPLOAD MEMBERSHIP IMAGE ERROR:", error);
-
+    console.error("UPLOAD ADMIN MEMBERSHIP IMAGE ERROR:", error);
     return errorResponse("Gagal upload foto membership", 500);
   }
 }

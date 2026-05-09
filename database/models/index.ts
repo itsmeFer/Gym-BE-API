@@ -24,6 +24,16 @@ Membership.belongsTo(User, {
   as: "sales",
 });
 
+User.hasMany(Membership, {
+  foreignKey: "processedByUserId",
+  as: "processedMemberships",
+});
+
+Membership.belongsTo(User, {
+  foreignKey: "processedByUserId",
+  as: "processedBy",
+});
+
 MembershipPlan.hasMany(Membership, {
   foreignKey: "planId",
   as: "memberships",

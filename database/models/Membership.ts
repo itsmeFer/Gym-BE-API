@@ -6,6 +6,7 @@ export interface MembershipAttributes {
 
   userId: number;
   salesUserId: number | null;
+  processedByUserId: number | null;
   planId: number | null;
 
   packageName: string;
@@ -36,6 +37,7 @@ export type MembershipCreationAttributes = Optional<
   MembershipAttributes,
   | "id"
   | "salesUserId"
+  | "processedByUserId"
   | "planId"
   | "packageName"
   | "packagePrice"
@@ -63,6 +65,7 @@ class Membership
 
   declare userId: number;
   declare salesUserId: number | null;
+  declare processedByUserId: number | null;
   declare planId: number | null;
 
   declare packageName: string;
@@ -107,6 +110,12 @@ Membership.init(
       type: DataTypes.INTEGER,
       allowNull: true,
       field: "sales_user_id",
+    },
+
+    processedByUserId: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      field: "processed_by_user_id",
     },
 
     planId: {

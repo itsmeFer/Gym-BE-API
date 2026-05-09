@@ -9,28 +9,7 @@ import {
 } from "@/database/models";
 import { errorResponse, successResponse } from "@/lib/response";
 
-type PlainRecord = Record<string, any>;
-
-type DateRange = {
-  startDate: string;
-  endDate: string;
-  startDateTime: Date;
-  endDateTime: Date;
-};
-
-const REVOKED_STATUSES = ["revoke", "revoked", "dicabut", "dibatalkan"];
-
-const STAFF_ROLES = [
-  "admin",
-  "direktur",
-  "manager",
-  "karyawan",
-  "trainer",
-  "sales",
-  "customer",
-];
-
-function normalizeText(value: unknown) {
+function normalize(value: unknown) {
   return String(value ?? "").trim().toLowerCase();
 }
 
@@ -39,179 +18,60 @@ function toNumber(value: unknown, defaultValue = 0) {
   return Number.isFinite(number) ? number : defaultValue;
 }
 
-function isRevokedMembership(value: unknown) {
-  return REVOKED_STATUSES.includes(normalizeText(value));
+function parseDateOrNull(value: unknown) {
+  const text = String(value ?? "").trim();
+
+  if (!text) return null;
+
+  const date = new Date(text);
+
+  if (Number.isNaN(date.getTime())) return null;
+
+  return date;
 }
 
-function isPaidMembership(value: unknown) {
-  return normalizeText(value) === "paid";
+function dateOnly(date: Date) {
+  const year = date.getFullYear().toString().padStart(4, "0");
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
 }
 
-function getJakartaDateString(date = new Date()) {
+function getJakartaDateString() {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Jakarta",
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
-  }).format(date);
+  }).format(new Date());
 }
 
-function getMonthStartDateString(date = new Date()) {
-  const jakartaDate = getJakartaDateString(date);
-  const [year, month] = jakartaDate.split("-");
+function isPaid(value: unknown) {
+  const status = normalize(value);
 
-  return `${year}-${month}-01`;
+  return status === "paid" || status === "success" || status === "approved";
 }
 
-function parseDateOnly(value: unknown) {
+function isActive(value: unknown) {
+  return normalize(value) === "active";
+}
+
+function isRevoked(value: unknown) {
+  const status = normalize(value);
+
+  return (
+    status === "revoke" ||
+    status === "revoked" ||
+    status === "dicabut" ||
+    status === "dibatalkan"
+  );
+}
+
+function safeName(value: unknown, fallback = "Tanpa nama") {
   const text = String(value ?? "").trim();
 
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) {
-    return null;
-  }
-
-  const date = new Date(`${text}T00:00:00.000+07:00`);
-
-  if (Number.isNaN(date.getTime())) {
-    return null;
-  }
-
-  return text;
-}
-
-function dateOnlyToDateStart(value: string) {
-  return new Date(`${value}T00:00:00.000+07:00`);
-}
-
-function dateOnlyToDateEnd(value: string) {
-  return new Date(`${value}T23:59:59.999+07:00`);
-}
-
-function getDateRange(request: NextRequest): DateRange {
-  const searchParams = request.nextUrl.searchParams;
-
-  const today = getJakartaDateString();
-  const defaultStartDate = getMonthStartDateString();
-
-  const startDate = parseDateOnly(searchParams.get("startDate")) ?? defaultStartDate;
-  const endDate = parseDateOnly(searchParams.get("endDate")) ?? today;
-
-  return {
-    startDate,
-    endDate,
-    startDateTime: dateOnlyToDateStart(startDate),
-    endDateTime: dateOnlyToDateEnd(endDate),
-  };
-}
-
-function parseUnknownDate(value: unknown) {
-  if (value === undefined || value === null || value === "") return null;
-
-  if (value instanceof Date) {
-    return Number.isNaN(value.getTime()) ? null : value;
-  }
-
-  if (typeof value === "string" || typeof value === "number") {
-    const date = new Date(value);
-
-    return Number.isNaN(date.getTime()) ? null : date;
-  }
-
-  return null;
-}
-
-function isDateInsideRange(dateValue: unknown, range: DateRange) {
-  const date = parseUnknownDate(dateValue);
-
-  if (!date) return false;
-
-  return date >= range.startDateTime && date <= range.endDateTime;
-}
-
-function getPaymentDate(membership: PlainRecord) {
-  return (
-    membership.paidAt ??
-    membership.paid_at ??
-    membership.updatedAt ??
-    membership.updated_at ??
-    membership.createdAt ??
-    membership.created_at ??
-    null
-  );
-}
-
-function getCreatedDate(item: PlainRecord) {
-  return item.createdAt ?? item.created_at ?? null;
-}
-
-function getPaidAmount(membership: PlainRecord) {
-  const paidAmount = toNumber(membership.paidAmount ?? membership.paid_amount, 0);
-  const packagePrice = toNumber(
-    membership.packagePrice ?? membership.package_price,
-    0,
-  );
-
-  return paidAmount > 0 ? paidAmount : packagePrice;
-}
-
-function formatMonthKey(dateValue: unknown) {
-  const date = parseUnknownDate(dateValue);
-
-  if (!date) return "unknown";
-
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-
-  return `${year}-${month}`;
-}
-
-function getLastSixMonthKeys() {
-  const now = new Date();
-  const keys: string[] = [];
-
-  for (let index = 5; index >= 0; index -= 1) {
-    const date = new Date(now.getFullYear(), now.getMonth() - index, 1);
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, "0");
-
-    keys.push(`${year}-${month}`);
-  }
-
-  return keys;
-}
-
-function getMonthLabel(monthKey: string) {
-  const [year, month] = monthKey.split("-");
-  const date = new Date(Number(year), Number(month) - 1, 1);
-
-  return new Intl.DateTimeFormat("id-ID", {
-    month: "short",
-    year: "2-digit",
-  }).format(date);
-}
-
-function countBy(items: PlainRecord[], keyGetter: (item: PlainRecord) => string) {
-  return items.reduce((result: Record<string, number>, item) => {
-    const key = keyGetter(item) || "unknown";
-    result[key] = (result[key] ?? 0) + 1;
-    return result;
-  }, {});
-}
-
-function sumBy(items: PlainRecord[], valueGetter: (item: PlainRecord) => number) {
-  return items.reduce((sum, item) => sum + valueGetter(item), 0);
-}
-
-function getUserName(user: any) {
-  if (!user) return "Tanpa nama";
-
-  return (
-    user.name ??
-    user.fullName ??
-    user.full_name ??
-    user.email ??
-    `User ${user.id ?? ""}`
-  );
+  return text || fallback;
 }
 
 function serializeUser(user: any) {
@@ -220,14 +80,16 @@ function serializeUser(user: any) {
   const data = user?.get ? user.get({ plain: true }) : user;
 
   return {
-    id: data.id,
-    name: getUserName(data),
-    email: data.email ?? "",
-    phone: data.phone ?? "",
-    role: normalizeText(data.role),
-    points: toNumber(data.points, 0),
-    maxPoints: toNumber(data.maxPoints ?? data.max_points, 100),
-    isActive: Boolean(data.isActive ?? data.is_active ?? true),
+    id: data?.id,
+    name: data?.name ?? "",
+    email: data?.email ?? "",
+    phone: data?.phone ?? "",
+    role: data?.role ?? "",
+    points: Number(data?.points ?? 0),
+    maxPoints: Number(data?.maxPoints ?? data?.max_points ?? 0),
+    isActive: data?.isActive ?? data?.is_active ?? true,
+    createdAt: data?.createdAt ?? data?.created_at ?? null,
+    updatedAt: data?.updatedAt ?? data?.updated_at ?? null,
   };
 }
 
@@ -237,13 +99,29 @@ function serializePlan(plan: any) {
   const data = plan?.get ? plan.get({ plain: true }) : plan;
 
   return {
-    id: data.id,
-    programName: data.programName ?? data.program_name ?? "",
-    customerCategory: data.customerCategory ?? data.customer_category ?? "",
-    packageCode: data.packageCode ?? data.package_code ?? "",
-    name: data.name ?? "",
-    price: toNumber(data.price, 0),
-    isActive: Boolean(data.isActive ?? data.is_active ?? true),
+    id: data?.id,
+    programName: data?.programName ?? data?.program_name ?? "",
+    customerCategory: data?.customerCategory ?? data?.customer_category ?? "",
+    packageCode: data?.packageCode ?? data?.package_code ?? "",
+    name: data?.name ?? "",
+    description: data?.description ?? "",
+    imageUrl: data?.imageUrl ?? data?.image_url ?? null,
+    price: Number(data?.price ?? 0),
+    durationDays: Number(data?.durationDays ?? data?.duration_days ?? 0),
+    discountPercent: Number(
+      data?.discountPercent ?? data?.discount_percent ?? 0
+    ),
+    personalTrainerSessions: Number(
+      data?.personalTrainerSessions ?? data?.personal_trainer_sessions ?? 0
+    ),
+    pilatesSessions: Number(data?.pilatesSessions ?? data?.pilates_sessions ?? 0),
+    freeMembershipDays: Number(
+      data?.freeMembershipDays ?? data?.free_membership_days ?? 0
+    ),
+    benefits: Array.isArray(data?.benefits) ? data.benefits : [],
+    isActive: data?.isActive ?? data?.is_active ?? true,
+    createdAt: data?.createdAt ?? data?.created_at ?? null,
+    updatedAt: data?.updatedAt ?? data?.updated_at ?? null,
   };
 }
 
@@ -251,32 +129,40 @@ function serializeMembership(membership: any) {
   const data = membership?.get ? membership.get({ plain: true }) : membership;
 
   return {
-    id: data.id,
-    userId: data.userId ?? data.user_id,
-    salesUserId: data.salesUserId ?? data.sales_user_id,
-    planId: data.planId ?? data.plan_id,
+    id: data?.id,
+    userId: data?.userId ?? data?.user_id,
+    salesUserId: data?.salesUserId ?? data?.sales_user_id,
+    processedByUserId: data?.processedByUserId ?? data?.processed_by_user_id,
+    planId: data?.planId ?? data?.plan_id,
 
-    packageName: data.packageName ?? data.package_name,
-    packagePrice: toNumber(data.packagePrice ?? data.package_price, 0),
+    packageName: data?.packageName ?? data?.package_name ?? "",
+    packagePrice: Number(data?.packagePrice ?? data?.package_price ?? 0),
 
-    paymentMethod: data.paymentMethod ?? data.payment_method,
-    paymentStatus: data.paymentStatus ?? data.payment_status,
-    paidAmount: toNumber(data.paidAmount ?? data.paid_amount, 0),
-    paidAt: data.paidAt ?? data.paid_at,
+    paymentMethod: data?.paymentMethod ?? data?.payment_method ?? "",
+    paymentStatus: data?.paymentStatus ?? data?.payment_status ?? "",
+    paidAmount: Number(data?.paidAmount ?? data?.paid_amount ?? 0),
+    paidAt: data?.paidAt ?? data?.paid_at ?? null,
+    paymentProofPhoto:
+      data?.paymentProofPhoto ?? data?.payment_proof_photo ?? null,
 
-    memberStatus: data.memberStatus ?? data.member_status,
-    salesStatus: data.salesStatus ?? data.sales_status ?? "pending",
+    memberStatus: data?.memberStatus ?? data?.member_status ?? "",
+    salesStatus: data?.salesStatus ?? data?.sales_status ?? "pending",
 
-    startedAt: data.startedAt ?? data.started_at,
-    expiredAt: data.expiredAt ?? data.expired_at,
+    startedAt: data?.startedAt ?? data?.started_at ?? null,
+    expiredAt: data?.expiredAt ?? data?.expired_at ?? null,
 
-    notes: data.notes,
-    createdAt: data.createdAt ?? data.created_at,
-    updatedAt: data.updatedAt ?? data.updated_at,
+    userScheduleSet: data?.userScheduleSet ?? data?.user_schedule_set ?? false,
+    scheduleEditCount:
+      data?.scheduleEditCount ?? data?.schedule_edit_count ?? 0,
 
-    user: serializeUser(data.user),
-    sales: serializeUser(data.sales),
-    plan: serializePlan(data.plan),
+    notes: data?.notes ?? null,
+    createdAt: data?.createdAt ?? data?.created_at ?? null,
+    updatedAt: data?.updatedAt ?? data?.updated_at ?? null,
+
+    user: serializeUser(data?.user),
+    sales: serializeUser(data?.sales),
+    processedBy: serializeUser(data?.processedBy),
+    plan: serializePlan(data?.plan),
   };
 }
 
@@ -284,297 +170,367 @@ function serializeAttendance(attendance: any) {
   const data = attendance?.get ? attendance.get({ plain: true }) : attendance;
 
   return {
-    id: data.id,
-    userId: data.userId ?? data.user_id,
-    fullName: data.fullName ?? data.full_name ?? "Tanpa nama",
-    role: normalizeText(data.role),
-    attendanceDate: data.attendanceDate ?? data.attendance_date,
-    checkIn: data.checkIn ?? data.check_in,
-    checkOut: data.checkOut ?? data.check_out,
-    status: normalizeText(data.status),
-    lateMinutes: data.lateMinutes ?? data.late_minutes,
-    pointPenalty: toNumber(data.pointPenalty ?? data.point_penalty, 0),
-    location: data.location,
-    deviceMac: data.deviceMac ?? data.device_mac,
-    checkInPhoto: data.checkInPhoto ?? data.check_in_photo,
-    checkOutPhoto: data.checkOutPhoto ?? data.check_out_photo,
-    note: data.note,
-    isManual: Boolean(data.isManual ?? data.is_manual ?? true),
-    createdAt: data.createdAt ?? data.created_at,
-    updatedAt: data.updatedAt ?? data.updated_at,
+    id: data?.id,
+    userId: data?.userId ?? data?.user_id ?? null,
+    fullName: data?.fullName ?? data?.full_name ?? data?.full_name ?? "",
+    role: data?.role ?? "",
+    attendanceDate: data?.attendanceDate ?? data?.attendance_date ?? null,
+    checkIn: data?.checkIn ?? data?.check_in ?? null,
+    checkOut: data?.checkOut ?? data?.check_out ?? null,
+    status: data?.status ?? "",
+    lateMinutes: Number(data?.lateMinutes ?? data?.late_minutes ?? 0),
+    pointPenalty: Number(data?.pointPenalty ?? data?.point_penalty ?? 0),
+    location: data?.location ?? null,
+    deviceMac: data?.deviceMac ?? data?.device_mac ?? null,
+    checkInPhoto: data?.checkInPhoto ?? data?.check_in_photo ?? null,
+    checkOutPhoto: data?.checkOutPhoto ?? data?.check_out_photo ?? null,
+    note: data?.note ?? null,
+    isManual: data?.isManual ?? data?.is_manual ?? false,
+    createdAt: data?.createdAt ?? data?.created_at ?? null,
+    updatedAt: data?.updatedAt ?? data?.updated_at ?? null,
   };
 }
 
-function buildRevenueChart(paidMemberships: PlainRecord[]) {
-  const monthKeys = getLastSixMonthKeys();
+function addCount(target: Record<string, number>, key: string, amount = 1) {
+  const cleanKey = key.trim() || "unknown";
+  target[cleanKey] = (target[cleanKey] ?? 0) + amount;
+}
 
-  const revenueByMonth = monthKeys.reduce(
-    (result: Record<string, number>, key) => {
-      result[key] = 0;
-      return result;
+function topEntries(data: Record<string, number>, limit = 8) {
+  return Object.fromEntries(
+    Object.entries(data)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, limit)
+  );
+}
+
+function sumRevenue(memberships: any[]) {
+  return memberships.reduce((sum, item) => {
+    if (isRevoked(item.memberStatus)) return sum;
+    if (!isPaid(item.paymentStatus)) return sum;
+
+    const paidAmount = toNumber(item.paidAmount);
+    const packagePrice = toNumber(item.packagePrice);
+
+    return sum + (paidAmount > 0 ? paidAmount : packagePrice);
+  }, 0);
+}
+
+function buildMembershipReports(memberships: any[]) {
+  const counted = memberships.filter((item) => !isRevoked(item.memberStatus));
+  const paidItems = counted.filter((item) => isPaid(item.paymentStatus));
+  const activeItems = counted.filter((item) => isActive(item.memberStatus));
+  const revokedItems = memberships.filter((item) => isRevoked(item.memberStatus));
+
+  const paymentStatusChart: Record<string, number> = {};
+  const memberStatusChart: Record<string, number> = {};
+  const paymentMethodChart: Record<string, number> = {};
+  const packageChart: Record<string, number> = {};
+  const salesChart: Record<string, number> = {};
+  const processedByChart: Record<string, number> = {};
+  const revenueByPackage: Record<string, number> = {};
+  const revenueBySales: Record<string, number> = {};
+  const revenueByAdmin: Record<string, number> = {};
+  const dailyRevenueChart: Record<string, number> = {};
+  const dailyTransactionChart: Record<string, number> = {};
+
+  for (const item of memberships) {
+    const paymentStatus = normalize(item.paymentStatus) || "unknown";
+    const memberStatus = normalize(item.memberStatus) || "unknown";
+    const paymentMethod = normalize(item.paymentMethod) || "unknown";
+
+    addCount(paymentStatusChart, paymentStatus);
+    addCount(memberStatusChart, memberStatus);
+    addCount(paymentMethodChart, paymentMethod);
+
+    if (isRevoked(item.memberStatus)) continue;
+
+    const packageName = safeName(item.packageName, "Tanpa paket");
+    const salesName = safeName(item.sales?.name, "Tanpa sales");
+    const adminName = safeName(item.processedBy?.name, "Belum ada admin proses");
+
+    addCount(packageChart, packageName);
+    addCount(salesChart, salesName);
+    addCount(processedByChart, adminName);
+
+    if (isPaid(item.paymentStatus)) {
+      const amount =
+        toNumber(item.paidAmount) > 0
+          ? toNumber(item.paidAmount)
+          : toNumber(item.packagePrice);
+
+      revenueByPackage[packageName] = (revenueByPackage[packageName] ?? 0) + amount;
+      revenueBySales[salesName] = (revenueBySales[salesName] ?? 0) + amount;
+      revenueByAdmin[adminName] = (revenueByAdmin[adminName] ?? 0) + amount;
+
+      const dateSource = item.paidAt ?? item.createdAt ?? new Date();
+      const date = new Date(dateSource);
+      const key = Number.isNaN(date.getTime()) ? "unknown" : dateOnly(date);
+
+      dailyRevenueChart[key] = (dailyRevenueChart[key] ?? 0) + amount;
+      dailyTransactionChart[key] = (dailyTransactionChart[key] ?? 0) + 1;
+    }
+  }
+
+  return {
+    summary: {
+      totalMemberships: counted.length,
+      paidMemberships: paidItems.length,
+      activeMemberships: activeItems.length,
+      revokedMemberships: revokedItems.length,
+      unpaidMemberships: counted.filter(
+        (item) => normalize(item.paymentStatus) === "unpaid"
+      ).length,
+      pendingMemberships: counted.filter(
+        (item) => normalize(item.paymentStatus) === "pending"
+      ).length,
+      totalRevenue: sumRevenue(memberships),
+      averageTransaction:
+        paidItems.length > 0 ? Math.round(sumRevenue(memberships) / paidItems.length) : 0,
     },
-    {},
+
+    charts: {
+      paymentStatusChart: topEntries(paymentStatusChart, 10),
+      memberStatusChart: topEntries(memberStatusChart, 10),
+      paymentMethodChart: topEntries(paymentMethodChart, 10),
+      packageChart: topEntries(packageChart, 10),
+      salesChart: topEntries(salesChart, 10),
+      processedByChart: topEntries(processedByChart, 10),
+      revenueByPackage: topEntries(revenueByPackage, 10),
+      revenueBySales: topEntries(revenueBySales, 10),
+      revenueByAdmin: topEntries(revenueByAdmin, 10),
+      dailyRevenueChart: Object.fromEntries(
+        Object.entries(dailyRevenueChart).sort((a, b) => a[0].localeCompare(b[0]))
+      ),
+      dailyTransactionChart: Object.fromEntries(
+        Object.entries(dailyTransactionChart).sort((a, b) =>
+          a[0].localeCompare(b[0])
+        )
+      ),
+    },
+
+    top: {
+      recentPayments: memberships
+        .filter((item) => isPaid(item.paymentStatus))
+        .slice(0, 10),
+      latestMemberships: memberships.slice(0, 10),
+      revokedMemberships: revokedItems.slice(0, 10),
+      topSalesByTransaction: Object.entries(salesChart)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(([name, total]) => ({ name, total })),
+      topAdminByTransaction: Object.entries(processedByChart)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(([name, total]) => ({ name, total })),
+    },
+  };
+}
+
+function buildUserReports(users: any[]) {
+  const roleChart: Record<string, number> = {};
+  const activeChart: Record<string, number> = {};
+
+  for (const user of users) {
+    addCount(roleChart, normalize(user.role) || "unknown");
+    addCount(activeChart, user.isActive ? "active" : "inactive");
+  }
+
+  const staffRoles = [
+    "admin",
+    "direktur",
+    "manager",
+    "karyawan",
+    "trainer",
+    "sales",
+    "kasir",
+  ];
+
+  return {
+    summary: {
+      totalUsers: users.length,
+      totalCustomers: users.filter((user) => normalize(user.role) === "customer")
+        .length,
+      totalStaff: users.filter((user) =>
+        staffRoles.includes(normalize(user.role))
+      ).length,
+      totalSales: users.filter((user) => normalize(user.role) === "sales").length,
+      totalManagers: users.filter((user) => normalize(user.role) === "manager")
+        .length,
+      activeUsers: users.filter((user) => user.isActive).length,
+      inactiveUsers: users.filter((user) => !user.isActive).length,
+    },
+    charts: {
+      roleChart: topEntries(roleChart, 12),
+      activeChart,
+    },
+    top: {
+      latestUsers: users.slice(0, 10),
+      lowestPointUsers: [...users]
+        .sort((a, b) => toNumber(a.points) - toNumber(b.points))
+        .slice(0, 10),
+    },
+  };
+}
+
+function buildAttendanceReports(attendances: any[]) {
+  const today = getJakartaDateString();
+
+  const todayAttendances = attendances.filter(
+    (item) => String(item.attendanceDate ?? "") === today
   );
 
-  const transactionByMonth = monthKeys.reduce(
-    (result: Record<string, number>, key) => {
-      result[key] = 0;
-      return result;
+  const statusChart: Record<string, number> = {};
+  const roleChart: Record<string, number> = {};
+  const dailyChart: Record<string, number> = {};
+  const lateByRoleChart: Record<string, number> = {};
+  const penaltyByRoleChart: Record<string, number> = {};
+
+  let totalLateMinutes = 0;
+  let totalPenaltyPoints = 0;
+
+  for (const item of attendances) {
+    const status = normalize(item.status) || "unknown";
+    const role = normalize(item.role) || "unknown";
+    const date = String(item.attendanceDate ?? "unknown");
+
+    const lateMinutes = toNumber(item.lateMinutes);
+    const penalty = toNumber(item.pointPenalty);
+
+    totalLateMinutes += lateMinutes;
+    totalPenaltyPoints += penalty;
+
+    addCount(statusChart, status);
+    addCount(roleChart, role);
+    addCount(dailyChart, date);
+
+    lateByRoleChart[role] = (lateByRoleChart[role] ?? 0) + lateMinutes;
+    penaltyByRoleChart[role] = (penaltyByRoleChart[role] ?? 0) + penalty;
+  }
+
+  return {
+    summary: {
+      totalAttendances: attendances.length,
+      todayAttendances: todayAttendances.length,
+      checkedInToday: todayAttendances.filter((item) => item.checkIn).length,
+      checkedOutToday: todayAttendances.filter((item) => item.checkOut).length,
+      totalLateMinutes,
+      totalPenaltyPoints,
+      lateAttendances: attendances.filter((item) => toNumber(item.lateMinutes) > 0)
+        .length,
+      manualAttendances: attendances.filter((item) => item.isManual).length,
     },
-    {},
-  );
-
-  for (const membership of paidMemberships) {
-    const paymentDate = getPaymentDate(membership);
-    const monthKey = formatMonthKey(paymentDate);
-
-    if (!Object.prototype.hasOwnProperty.call(revenueByMonth, monthKey)) {
-      continue;
-    }
-
-    revenueByMonth[monthKey] += getPaidAmount(membership);
-    transactionByMonth[monthKey] += 1;
-  }
-
-  return monthKeys.map((monthKey) => ({
-    key: monthKey,
-    label: getMonthLabel(monthKey),
-    revenue: revenueByMonth[monthKey],
-    transactions: transactionByMonth[monthKey],
-  }));
+    charts: {
+      attendanceStatusChart: topEntries(statusChart, 10),
+      attendanceRoleChart: topEntries(roleChart, 10),
+      dailyAttendanceChart: Object.fromEntries(
+        Object.entries(dailyChart).sort((a, b) => a[0].localeCompare(b[0]))
+      ),
+      lateByRoleChart: topEntries(lateByRoleChart, 10),
+      penaltyByRoleChart: topEntries(penaltyByRoleChart, 10),
+    },
+    top: {
+      todayAttendances: todayAttendances.slice(0, 15),
+      latestAttendances: attendances.slice(0, 15),
+      mostLateAttendances: [...attendances]
+        .sort((a, b) => toNumber(b.lateMinutes) - toNumber(a.lateMinutes))
+        .slice(0, 10),
+      mostPenaltyAttendances: [...attendances]
+        .sort((a, b) => toNumber(b.pointPenalty) - toNumber(a.pointPenalty))
+        .slice(0, 10),
+    },
+  };
 }
 
-function buildSalesLeaderboard(memberships: PlainRecord[]) {
-  const salesMap = new Map<
-    string,
-    {
-      salesId: number | null;
-      name: string;
-      totalLead: number;
-      totalDeal: number;
-      totalRevenue: number;
-      waitingPayment: number;
-      cancelled: number;
-    }
-  >();
+function buildPlanReports(plans: any[]) {
+  const activePlans = plans.filter((plan) => plan.isActive);
+  const inactivePlans = plans.filter((plan) => !plan.isActive);
 
-  for (const membership of memberships) {
-    const sales = membership.sales;
-    const salesId = sales?.id ?? membership.salesUserId ?? membership.sales_user_id ?? null;
-    const name = sales?.name ?? "Tanpa sales";
-    const key = String(salesId ?? name);
+  const categoryChart: Record<string, number> = {};
+  const priceRangeChart: Record<string, number> = {};
 
-    if (!salesMap.has(key)) {
-      salesMap.set(key, {
-        salesId,
-        name,
-        totalLead: 0,
-        totalDeal: 0,
-        totalRevenue: 0,
-        waitingPayment: 0,
-        cancelled: 0,
-      });
-    }
+  for (const plan of plans) {
+    addCount(categoryChart, normalize(plan.customerCategory) || "unknown");
 
-    const item = salesMap.get(key)!;
-    const paymentStatus = normalizeText(
-      membership.paymentStatus ?? membership.payment_status,
-    );
-    const salesStatus = normalizeText(
-      membership.salesStatus ?? membership.sales_status,
-    );
-    const memberStatus = normalizeText(
-      membership.memberStatus ?? membership.member_status,
-    );
+    const price = toNumber(plan.price);
 
-    item.totalLead += 1;
-
-    if (paymentStatus === "paid" && !isRevokedMembership(memberStatus)) {
-      item.totalDeal += 1;
-      item.totalRevenue += getPaidAmount(membership);
-    }
-
-    if (salesStatus === "waiting_payment") {
-      item.waitingPayment += 1;
-    }
-
-    if (salesStatus === "cancelled" || salesStatus === "not_interested") {
-      item.cancelled += 1;
-    }
-  }
-
-  return Array.from(salesMap.values())
-    .sort((a, b) => b.totalRevenue - a.totalRevenue || b.totalDeal - a.totalDeal)
-    .slice(0, 8);
-}
-
-function buildPackageChart(paidMemberships: PlainRecord[]) {
-  const packageMap = new Map<
-    string,
-    {
-      packageName: string;
-      totalSold: number;
-      totalRevenue: number;
-    }
-  >();
-
-  for (const membership of paidMemberships) {
-    const packageName =
-      membership.packageName ??
-      membership.package_name ??
-      membership.plan?.name ??
-      "Paket tanpa nama";
-
-    if (!packageMap.has(packageName)) {
-      packageMap.set(packageName, {
-        packageName,
-        totalSold: 0,
-        totalRevenue: 0,
-      });
-    }
-
-    const item = packageMap.get(packageName)!;
-
-    item.totalSold += 1;
-    item.totalRevenue += getPaidAmount(membership);
-  }
-
-  return Array.from(packageMap.values())
-    .sort((a, b) => b.totalRevenue - a.totalRevenue || b.totalSold - a.totalSold)
-    .slice(0, 8);
-}
-
-function buildAttendanceDailyChart(attendances: PlainRecord[]) {
-  const result = new Map<
-    string,
-    {
-      date: string;
-      hadir: number;
-      telat: number;
-      alpha: number;
-      izin: number;
-      sakit: number;
-      pulang: number;
-      totalPenalty: number;
-    }
-  >();
-
-  for (const attendance of attendances) {
-    const date =
-      attendance.attendanceDate ??
-      attendance.attendance_date ??
-      getJakartaDateString();
-
-    if (!result.has(date)) {
-      result.set(date, {
-        date,
-        hadir: 0,
-        telat: 0,
-        alpha: 0,
-        izin: 0,
-        sakit: 0,
-        pulang: 0,
-        totalPenalty: 0,
-      });
-    }
-
-    const item = result.get(date)!;
-    const status = normalizeText(attendance.status);
-
-    if (status === "telat" || status === "terlambat") {
-      item.telat += 1;
-    } else if (
-      status === "alpha" ||
-      status === "absen" ||
-      status === "tidak_masuk" ||
-      status === "tidak masuk"
-    ) {
-      item.alpha += 1;
-    } else if (status === "izin") {
-      item.izin += 1;
-    } else if (status === "sakit") {
-      item.sakit += 1;
-    } else if (status === "pulang") {
-      item.pulang += 1;
+    if (price < 250000) {
+      addCount(priceRangeChart, "< 250rb");
+    } else if (price < 500000) {
+      addCount(priceRangeChart, "250rb - 499rb");
+    } else if (price < 1000000) {
+      addCount(priceRangeChart, "500rb - 999rb");
     } else {
-      item.hadir += 1;
+      addCount(priceRangeChart, ">= 1jt");
     }
-
-    item.totalPenalty += Math.abs(
-      toNumber(attendance.pointPenalty ?? attendance.point_penalty, 0),
-    );
   }
 
-  return Array.from(result.values()).sort((a, b) =>
-    a.date.localeCompare(b.date),
-  );
-}
-
-function buildActivities(params: {
-  memberships: PlainRecord[];
-  attendances: PlainRecord[];
-}) {
-  const membershipActivities = params.memberships.slice(0, 8).map((item) => {
-    const paymentStatus = normalizeText(item.paymentStatus ?? item.payment_status);
-    const memberStatus = normalizeText(item.memberStatus ?? item.member_status);
-    const isRevoked = isRevokedMembership(memberStatus);
-
-    return {
-      id: `membership-${item.id}`,
-      type: "membership",
-      title: isRevoked
-        ? "Membership dicabut / revoke"
-        : paymentStatus === "paid"
-          ? "Pembayaran membership berhasil"
-          : "Aktivitas membership terbaru",
-      userName: item.user?.name ?? "Tanpa nama",
-      description: `${item.packageName ?? item.package_name ?? "Paket"} • ${paymentStatus || "-"}`,
-      amount: isRevoked ? 0 : paymentStatus === "paid" ? getPaidAmount(item) : 0,
-      status: isRevoked ? "revoked" : paymentStatus || memberStatus || "-",
-      createdAt: getPaymentDate(item) ?? getCreatedDate(item),
-      data: serializeMembership(item),
-    };
-  });
-
-  const attendanceActivities = params.attendances.slice(0, 8).map((item) => {
-    const status = normalizeText(item.status);
-    const penalty = Math.abs(
-      toNumber(item.pointPenalty ?? item.point_penalty, 0),
-    );
-
-    return {
-      id: `attendance-${item.id}`,
-      type: "attendance",
-      title:
-        penalty > 0
-          ? "Absensi dengan pengurangan poin"
-          : "Aktivitas absensi terbaru",
-      userName: item.fullName ?? item.full_name ?? "Tanpa nama",
-      description: `${status || "-"} • ${item.attendanceDate ?? item.attendance_date ?? "-"}`,
-      amount: penalty > 0 ? -penalty : 0,
-      status,
-      createdAt: getCreatedDate(item),
-      data: serializeAttendance(item),
-    };
-  });
-
-  return [...membershipActivities, ...attendanceActivities]
-    .sort((a, b) => {
-      const dateA = new Date(a.createdAt ?? 0).getTime();
-      const dateB = new Date(b.createdAt ?? 0).getTime();
-
-      return dateB - dateA;
-    })
-    .slice(0, 12);
+  return {
+    summary: {
+      totalPlans: plans.length,
+      activePlans: activePlans.length,
+      inactivePlans: inactivePlans.length,
+      averagePlanPrice:
+        plans.length > 0
+          ? Math.round(
+              plans.reduce((sum, item) => sum + toNumber(item.price), 0) /
+                plans.length
+            )
+          : 0,
+    },
+    charts: {
+      planCategoryChart: topEntries(categoryChart, 10),
+      planPriceRangeChart: priceRangeChart,
+    },
+    top: {
+      mostExpensivePlans: [...plans]
+        .sort((a, b) => toNumber(b.price) - toNumber(a.price))
+        .slice(0, 8),
+      latestPlans: plans.slice(0, 8),
+    },
+  };
 }
 
 export async function GET(request: NextRequest) {
   try {
-    const range = getDateRange(request);
+    const searchParams = request.nextUrl.searchParams;
 
-    const [membershipsRaw, attendancesRaw, usersRaw, plansRaw] =
+    const startDate = parseDateOrNull(searchParams.get("startDate"));
+    const endDate = parseDateOrNull(searchParams.get("endDate"));
+
+    const membershipWhere: any = {};
+    const attendanceWhere: any = {};
+    const userWhere: any = {};
+    const planWhere: any = {};
+
+    if (startDate || endDate) {
+      membershipWhere.createdAt = {};
+      attendanceWhere.createdAt = {};
+      userWhere.createdAt = {};
+      planWhere.createdAt = {};
+
+      if (startDate) {
+        membershipWhere.createdAt[Op.gte] = startDate;
+        attendanceWhere.createdAt[Op.gte] = startDate;
+        userWhere.createdAt[Op.gte] = startDate;
+        planWhere.createdAt[Op.gte] = startDate;
+      }
+
+      if (endDate) {
+        const safeEnd = new Date(endDate);
+        safeEnd.setHours(23, 59, 59, 999);
+
+        membershipWhere.createdAt[Op.lte] = safeEnd;
+        attendanceWhere.createdAt[Op.lte] = safeEnd;
+        userWhere.createdAt[Op.lte] = safeEnd;
+        planWhere.createdAt[Op.lte] = safeEnd;
+      }
+    }
+
+    const [membershipsRaw, usersRaw, attendancesRaw, plansRaw] =
       await Promise.all([
         Membership.findAll({
+          where: membershipWhere,
           include: [
             {
               model: User,
@@ -588,6 +544,8 @@ export async function GET(request: NextRequest) {
                 "points",
                 "maxPoints",
                 "isActive",
+                "createdAt",
+                "updatedAt",
               ],
               required: false,
             },
@@ -600,9 +558,24 @@ export async function GET(request: NextRequest) {
                 "email",
                 "phone",
                 "role",
-                "points",
-                "maxPoints",
                 "isActive",
+                "createdAt",
+                "updatedAt",
+              ],
+              required: false,
+            },
+            {
+              model: User,
+              as: "processedBy",
+              attributes: [
+                "id",
+                "name",
+                "email",
+                "phone",
+                "role",
+                "isActive",
+                "createdAt",
+                "updatedAt",
               ],
               required: false,
             },
@@ -612,19 +585,11 @@ export async function GET(request: NextRequest) {
               required: false,
             },
           ],
-          order: [["id", "DESC"]],
-        }),
-
-        Attendance.findAll({
-          where: {
-            attendanceDate: {
-              [Op.between]: [range.startDate, range.endDate],
-            },
-          },
-          order: [["id", "DESC"]],
+          order: [["createdAt", "DESC"]],
         }),
 
         User.findAll({
+          where: userWhere,
           attributes: [
             "id",
             "name",
@@ -635,149 +600,88 @@ export async function GET(request: NextRequest) {
             "maxPoints",
             "isActive",
             "createdAt",
+            "updatedAt",
           ],
-          order: [["id", "DESC"]],
+          order: [["createdAt", "DESC"]],
+        }),
+
+        Attendance.findAll({
+          where: attendanceWhere,
+          order: [
+            ["attendanceDate", "DESC"],
+            ["createdAt", "DESC"],
+          ],
         }),
 
         MembershipPlan.findAll({
-          order: [["id", "DESC"]],
+          where: planWhere,
+          order: [["createdAt", "DESC"]],
         }),
       ]);
 
-    const memberships = membershipsRaw.map((item) =>
-      item.get({ plain: true }),
-    ) as PlainRecord[];
+    const memberships = membershipsRaw.map((item) => serializeMembership(item));
+    const users = usersRaw.map((item) => serializeUser(item)).filter(Boolean);
+    const attendances = attendancesRaw.map((item) => serializeAttendance(item));
+    const plans = plansRaw.map((item) => serializePlan(item)).filter(Boolean);
 
-    const attendances = attendancesRaw.map((item) =>
-      item.get({ plain: true }),
-    ) as PlainRecord[];
+    const membershipReports = buildMembershipReports(memberships);
+    const userReports = buildUserReports(users);
+    const attendanceReports = buildAttendanceReports(attendances);
+    const planReports = buildPlanReports(plans);
 
-    const users = usersRaw.map((item) =>
-      item.get({ plain: true }),
-    ) as PlainRecord[];
-
-    const plans = plansRaw.map((item) =>
-      item.get({ plain: true }),
-    ) as PlainRecord[];
-
-    const membershipsInRange = memberships.filter((item) => {
-      const targetDate = getPaymentDate(item) ?? getCreatedDate(item);
-      return isDateInsideRange(targetDate, range);
-    });
-
-    const countedMemberships = membershipsInRange.filter(
-      (item) => !isRevokedMembership(item.memberStatus ?? item.member_status),
-    );
-
-    const revokedMemberships = membershipsInRange.filter((item) =>
-      isRevokedMembership(item.memberStatus ?? item.member_status),
-    );
-
-    const paidMemberships = countedMemberships.filter((item) =>
-      isPaidMembership(item.paymentStatus ?? item.payment_status),
-    );
-
-    const activeMemberships = countedMemberships.filter(
-      (item) => normalizeText(item.memberStatus ?? item.member_status) === "active",
-    );
-
-    const expiredMemberships = countedMemberships.filter(
-      (item) => normalizeText(item.memberStatus ?? item.member_status) === "expired",
-    );
-
-    const pendingMemberships = countedMemberships.filter(
-      (item) => normalizeText(item.memberStatus ?? item.member_status) === "pending",
-    );
-
-    const waitingPaymentMemberships = countedMemberships.filter(
-      (item) =>
-        normalizeText(item.salesStatus ?? item.sales_status) ===
-          "waiting_payment" ||
-        normalizeText(item.paymentStatus ?? item.payment_status) === "unpaid",
-    );
-
-    const totalRevenue = sumBy(paidMemberships, getPaidAmount);
-
-    const attendanceStatusChart = countBy(attendances, (item) =>
-      normalizeText(item.status),
-    );
-
-    const attendanceByRoleChart = countBy(attendances, (item) =>
-      normalizeText(item.role),
-    );
-
-    const staffUsers = users.filter((user) =>
-      STAFF_ROLES.includes(normalizeText(user.role)),
-    );
-
-    const customerUsers = users.filter(
-      (user) => normalizeText(user.role) === "customer",
-    );
-
-    const responseData = {
+    const summary = {
       period: {
-        startDate: range.startDate,
-        endDate: range.endDate,
+        startDate: startDate ? dateOnly(startDate) : null,
+        endDate: endDate ? dateOnly(endDate) : null,
+        today: getJakartaDateString(),
       },
 
-      summary: {
-        totalRevenue,
-        totalMembership: countedMemberships.length,
-        paidMembership: paidMemberships.length,
-        activeMembership: activeMemberships.length,
-        expiredMembership: expiredMemberships.length,
-        pendingMembership: pendingMemberships.length,
-        waitingPaymentMembership: waitingPaymentMemberships.length,
-        revokedMembership: revokedMemberships.length,
-
-        totalAttendance: attendances.length,
-        totalPenaltyPoint: sumBy(attendances, (item) =>
-          Math.abs(toNumber(item.pointPenalty ?? item.point_penalty, 0)),
-        ),
-
-        totalUser: users.length,
-        totalStaff: staffUsers.length,
-        totalCustomer: customerUsers.length,
-        totalMembershipPlan: plans.length,
-        activeMembershipPlan: plans.filter((item) =>
-          Boolean(item.isActive ?? item.is_active ?? true),
-        ).length,
+      business: {
+        totalRevenue: membershipReports.summary.totalRevenue,
+        averageTransaction: membershipReports.summary.averageTransaction,
+        totalPaid: membershipReports.summary.paidMemberships,
+        totalActiveMembers: membershipReports.summary.activeMemberships,
+        totalRevokedMembers: membershipReports.summary.revokedMemberships,
+        totalUsers: userReports.summary.totalUsers,
+        totalCustomers: userReports.summary.totalCustomers,
+        totalStaff: userReports.summary.totalStaff,
+        todayAttendances: attendanceReports.summary.todayAttendances,
       },
 
-      charts: {
-        revenue: buildRevenueChart(paidMemberships),
-        packageSales: buildPackageChart(paidMemberships),
-        salesLeaderboard: buildSalesLeaderboard(countedMemberships),
-        attendanceDaily: buildAttendanceDailyChart(attendances),
-        attendanceStatus: attendanceStatusChart,
-        attendanceByRole: attendanceByRoleChart,
-        userByRole: countBy(users, (item) => normalizeText(item.role)),
-        membershipStatus: countBy(countedMemberships, (item) =>
-          normalizeText(item.memberStatus ?? item.member_status),
-        ),
-        paymentStatus: countBy(countedMemberships, (item) =>
-          normalizeText(item.paymentStatus ?? item.payment_status),
-        ),
-      },
+      membership: membershipReports.summary,
+      user: userReports.summary,
+      attendance: attendanceReports.summary,
+      plan: planReports.summary,
+    };
 
-      latest: {
-        activities: buildActivities({
-          memberships: membershipsInRange,
-          attendances,
-        }),
-        memberships: membershipsInRange.slice(0, 10).map(serializeMembership),
-        attendances: attendances.slice(0, 10).map(serializeAttendance),
-        users: users.slice(0, 10).map(serializeUser),
-        plans: plans.slice(0, 10).map(serializePlan),
-      },
+    const charts = {
+      ...membershipReports.charts,
+      ...userReports.charts,
+      ...attendanceReports.charts,
+      ...planReports.charts,
+    };
+
+    const top = {
+      ...membershipReports.top,
+      ...userReports.top,
+      ...attendanceReports.top,
+      ...planReports.top,
     };
 
     return successResponse({
-      message: "Laporan manager berhasil diambil",
-      data: responseData,
+      message: "Rekapan laporan manager berhasil diambil",
+      summary,
+      charts,
+      top,
+      data: {
+        memberships,
+        users,
+        attendances,
+        plans,
+      },
     });
   } catch (error) {
     console.error("GET MANAGER REPORTS ERROR:", error);
-    return errorResponse("Gagal mengambil laporan manager", 500);
+    return errorResponse("Gagal mengambil rekapan laporan manager", 500);
   }
 }
