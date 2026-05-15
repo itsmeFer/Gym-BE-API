@@ -1,162 +1,306 @@
-// File: /app/api/admin/attendances/[id]/route.ts
 import { NextRequest } from "next/server";
-import { Attendance, AttendanceSetting, User } from "@/database/models";
+import { Attendance } from "@/database/models";
 import { errorResponse, successResponse } from "@/lib/response";
 
-type AttendanceSettingRaw = {
-  id: number;
-  role: string;
-  checkInTime: string | null;
-  checkOutTime?: string | null;
-  lateToleranceMinutes: number;
-  penaltyIntervalMinutes: number;
-  penaltyPointsPerInterval: number;
-  maxLatePenaltyPoints: number;
-  absentPenaltyPoints: number;
-  isActive: boolean;
-  note: string | null;
-};
-
-// helper functions
 function toNumberOrNull(value: unknown) {
-  if (value === undefined || value === null || value === "") return null;
+  if (value === undefined || value === null || value === "") {
+    return null;
+  }
+
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
+}
+
+function normalizeText(value: unknown) {
+  if (value === undefined || value === null) {
+    return null;
+  }
+
+  const text = String(value).trim();
+  return text ? text : null;
 }
 
 function normalizeStatus(value: unknown) {
   return String(value ?? "hadir").trim().toLowerCase();
 }
 
-// convert hh:mm to total minutes
-function timeToMinutes(time: string) {
-  const cleanTime = time.trim().slice(0, 5);
-  if (!/^\d{2}:\d{2}$/.test(cleanTime)) return null;
-  const [hour, minute] = cleanTime.split(":").map(Number);
-  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
-  return hour * 60 + minute;
-}
-
-function isAbsentStatus(status: string) {
-  const s = status.trim().toLowerCase();
-  return ["alpha", "absen", "tidak_masuk", "tidak masuk"].includes(s);
-}
-
-function isLateStatus(status: string) {
-  const s = status.trim().toLowerCase();
-  return ["telat", "terlambat"].includes(s);
-}
-
-function isFreeStatus(status: string) {
-  const s = status.trim().toLowerCase();
-  return ["izin", "sakit", "pulang"].includes(s);
-}
-
-async function getAttendanceSetting(role: string) {
-  return (await AttendanceSetting.findOne({
-    where: { role, isActive: true },
-    raw: true,
-  })) as AttendanceSettingRaw | null;
-}
-
-function calculatePenalty(params: {
-  lateMinutes: number;
-  penaltyIntervalMinutes: number;
-  penaltyPointsPerInterval: number;
-  maxLatePenaltyPoints: number;
-}) {
-  const lateMinutes = Math.max(params.lateMinutes, 0);
-  if (lateMinutes <= 0) return 0;
-
-  const intervalCount = Math.ceil(
-    lateMinutes / Math.max(params.penaltyIntervalMinutes ?? 60, 1)
-  );
-  const rawPenaltyPoints = intervalCount * Math.max(params.penaltyPointsPerInterval ?? 1, 0);
-  return -Math.abs(Math.min(rawPenaltyPoints, Math.max(params.maxLatePenaltyPoints ?? 8, 0)));
-}
-
-async function resolveAttendanceResult(params: {
-  role: string;
-  checkIn: string | null;
-  inputStatus: string;
-}) {
-  const { role, checkIn } = params;
-  const inputStatus = normalizeStatus(params.inputStatus);
-  const setting = await getAttendanceSetting(role);
-
-  if (!setting) return { status: inputStatus, lateMinutes: null, pointPenalty: 0 };
-  if (isAbsentStatus(inputStatus)) return { status: "alpha", lateMinutes: null, pointPenalty: -Math.abs(setting.absentPenaltyPoints ?? 8) };
-  if (isFreeStatus(inputStatus)) return { status: inputStatus, lateMinutes: 0, pointPenalty: 0 };
-  if (!checkIn || !setting.checkInTime) return { status: inputStatus, lateMinutes: null, pointPenalty: 0 };
-
-  const expectedMinutes = timeToMinutes(setting.checkInTime);
-  const actualMinutes = timeToMinutes(checkIn);
-  if (expectedMinutes === null || actualMinutes === null) return { status: inputStatus, lateMinutes: null, pointPenalty: 0 };
-
-  const lateMinutes = Math.max(actualMinutes - expectedMinutes, 0);
-  const isLateByRule = actualMinutes > expectedMinutes + (setting.lateToleranceMinutes ?? 0);
-
-  if (isLateStatus(inputStatus) || isLateByRule) {
-    const pointPenalty = calculatePenalty({
-      lateMinutes,
-      penaltyIntervalMinutes: setting.penaltyIntervalMinutes,
-      penaltyPointsPerInterval: setting.penaltyPointsPerInterval,
-      maxLatePenaltyPoints: setting.maxLatePenaltyPoints,
-    });
-    return { status: "telat", lateMinutes, pointPenalty };
+function isValidDateOnly(value: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return false;
   }
 
-  return { status: "hadir", lateMinutes: 0, pointPenalty: 0 };
+  const date = new Date(`${value}T00:00:00.000Z`);
+
+  if (Number.isNaN(date.getTime())) {
+    return false;
+  }
+
+  return date.toISOString().slice(0, 10) === value;
 }
 
-async function applyUserPointDelta(userId: number | null, delta: number) {
-  if (!userId || delta === 0) return;
-  const user = await User.findByPk(userId);
-  if (!user) return;
-  const currentPoints = Number(user.get("points") ?? 100);
-  await user.update({ points: Math.max(currentPoints + delta, 0) });
+function isProtectedDynamicId(id: string) {
+  return [
+    "check-in",
+    "check-out",
+    "me",
+    "today",
+  ].includes(id.trim().toLowerCase());
 }
 
-function getPlainAttendance(attendance: Attendance) {
-  return attendance.get({ plain: true }) as any;
+function getPlainAttendance(attendance: any) {
+  if (!attendance) return null;
+
+  if (typeof attendance.get === "function") {
+    return attendance.get({ plain: true });
+  }
+
+  return attendance;
 }
 
-// ------------------ CRUD Handlers ------------------
-export async function GET(request: NextRequest, context: { params: Promise<{ id: string }> }) {
+function calculateWorkDurationSeconds(checkIn: unknown, checkOut: unknown) {
+  const start = normalizeText(checkIn);
+  const end = normalizeText(checkOut);
+
+  if (!start || !end) {
+    return 0;
+  }
+
+  const startMatch = /^(\d{2}):(\d{2})(?::(\d{2}))?$/.exec(start);
+  const endMatch = /^(\d{2}):(\d{2})(?::(\d{2}))?$/.exec(end);
+
+  if (!startMatch || !endMatch) {
+    return 0;
+  }
+
+  const startHour = Number(startMatch[1]);
+  const startMinute = Number(startMatch[2]);
+  const startSecond = Number(startMatch[3] ?? 0);
+
+  const endHour = Number(endMatch[1]);
+  const endMinute = Number(endMatch[2]);
+  const endSecond = Number(endMatch[3] ?? 0);
+
+  const startTotal = startHour * 3600 + startMinute * 60 + startSecond;
+  const endTotal = endHour * 3600 + endMinute * 60 + endSecond;
+
+  if (!Number.isFinite(startTotal) || !Number.isFinite(endTotal)) {
+    return 0;
+  }
+
+  if (endTotal < startTotal) {
+    return 0;
+  }
+
+  return endTotal - startTotal;
+}
+
+function formatDuration(seconds: number) {
+  const safeSeconds = Math.max(Number(seconds) || 0, 0);
+
+  if (safeSeconds <= 0) {
+    return "-";
+  }
+
+  const hours = Math.floor(safeSeconds / 3600);
+  const minutes = Math.floor((safeSeconds % 3600) / 60);
+
+  if (hours <= 0) {
+    return `${minutes} menit`;
+  }
+
+  if (minutes <= 0) {
+    return `${hours} jam`;
+  }
+
+  return `${hours} jam ${minutes} menit`;
+}
+
+function serializeAttendance(attendance: any) {
+  const plain = getPlainAttendance(attendance);
+
+  if (!plain) {
+    return null;
+  }
+
+  const checkIn = plain.checkIn ?? plain.check_in ?? null;
+  const checkOut = plain.checkOut ?? plain.check_out ?? null;
+
+  const workDurationSeconds = calculateWorkDurationSeconds(checkIn, checkOut);
+  const workDurationMinutes = Math.floor(workDurationSeconds / 60);
+
+  return {
+    id: plain.id,
+    userId: plain.userId ?? plain.user_id ?? null,
+    fullName: plain.fullName ?? plain.full_name ?? "",
+    role: plain.role ?? "",
+    attendanceDate: plain.attendanceDate ?? plain.attendance_date ?? "",
+    checkIn,
+    checkOut,
+    status: plain.status ?? "hadir",
+    location: plain.location ?? "",
+    deviceMac: plain.deviceMac ?? plain.device_mac ?? "",
+    checkInPhoto: plain.checkInPhoto ?? plain.check_in_photo ?? "",
+    checkOutPhoto: plain.checkOutPhoto ?? plain.check_out_photo ?? "",
+    note: plain.note ?? "",
+    isManual: Boolean(plain.isManual ?? plain.is_manual ?? false),
+    createdAt: plain.createdAt ?? plain.created_at ?? null,
+    updatedAt: plain.updatedAt ?? plain.updated_at ?? null,
+    workDurationSeconds,
+    workDurationMinutes,
+    workDurationText: formatDuration(workDurationSeconds),
+
+    // Tetap dikirim 0/null agar FE lama tidak error,
+    // tapi UI baru tidak perlu menampilkan ini.
+    lateMinutes: null,
+    pointPenalty: 0,
+  };
+}
+
+export async function GET(
+  request: NextRequest,
+  context: { params: Promise<{ id: string }> }
+) {
   try {
     const { id } = await context.params;
-    const attendance = await Attendance.findByPk(id);
-    if (!attendance) return errorResponse("Absensi tidak ditemukan", 404);
-    return successResponse({ message: "Detail absensi berhasil diambil", data: attendance });
+
+    if (isProtectedDynamicId(id)) {
+      return errorResponse(
+        "Route absensi tidak valid. Gunakan endpoint khusus yang sesuai.",
+        400
+      );
+    }
+
+    const attendanceId = toNumberOrNull(id);
+
+    if (!attendanceId) {
+      return errorResponse("ID absensi tidak valid", 400);
+    }
+
+    const attendance = await Attendance.findByPk(attendanceId);
+
+    if (!attendance) {
+      return errorResponse("Absensi tidak ditemukan", 404);
+    }
+
+    return successResponse({
+      message: "Detail absensi berhasil diambil",
+      data: serializeAttendance(attendance),
+    });
   } catch (error) {
-    console.error(error);
+    console.error("GET /api/admin/attendances/[id] ERROR:", error);
     return errorResponse("Gagal mengambil detail absensi", 500);
   }
 }
 
-export async function PUT(request: NextRequest, context: { params: Promise<{ id: string }> }) {
+export async function PUT(
+  request: NextRequest,
+  context: { params: Promise<{ id: string }> }
+) {
   try {
     const { id } = await context.params;
-    const body = await request.json();
-    const attendance = await Attendance.findByPk(id);
-    if (!attendance) return errorResponse("Absensi tidak ditemukan", 404);
+
+    if (isProtectedDynamicId(id)) {
+      return errorResponse(
+        "Route absensi tidak valid. Gunakan endpoint khusus yang sesuai.",
+        400
+      );
+    }
+
+    const attendanceId = toNumberOrNull(id);
+
+    if (!attendanceId) {
+      return errorResponse("ID absensi tidak valid", 400);
+    }
+
+    const body = (await request.json()) as Record<string, unknown>;
+
+    const attendance = await Attendance.findByPk(attendanceId);
+
+    if (!attendance) {
+      return errorResponse("Absensi tidak ditemukan", 404);
+    }
 
     const oldAttendance = getPlainAttendance(attendance);
-    const oldUserId = toNumberOrNull(oldAttendance.userId ?? oldAttendance.user_id);
-    const oldPointPenalty = Number(oldAttendance.pointPenalty ?? oldAttendance.point_penalty ?? 0);
 
-    const userId = toNumberOrNull(body.userId ?? body.user_id) ?? oldUserId;
-    const fullName = String(body.fullName ?? body.full_name ?? oldAttendance.fullName ?? oldAttendance.full_name ?? "").trim();
-    const role = String(body.role ?? oldAttendance.role ?? "").trim().toLowerCase();
-    const attendanceDate = String(body.attendanceDate ?? body.attendance_date ?? oldAttendance.attendanceDate ?? oldAttendance.attendance_date ?? "").trim();
-    const checkIn = body.checkIn ?? body.check_in ?? oldAttendance.checkIn ?? oldAttendance.check_in ?? null;
-    const checkOut = body.checkOut ?? body.check_out ?? oldAttendance.checkOut ?? oldAttendance.check_out ?? null;
-    const inputStatus = normalizeStatus(body.status ?? oldAttendance.status);
+    const userId =
+      toNumberOrNull(body.userId ?? body.user_id) ??
+      toNumberOrNull(oldAttendance.userId ?? oldAttendance.user_id);
 
-    if (!fullName) return errorResponse("Nama wajib diisi", 400);
-    if (!role) return errorResponse("Role wajib diisi", 400);
+    const fullName = String(
+      body.fullName ??
+        body.full_name ??
+        oldAttendance.fullName ??
+        oldAttendance.full_name ??
+        ""
+    ).trim();
 
-    const attendanceResult = await resolveAttendanceResult({ role, checkIn, inputStatus });
+    const role = String(body.role ?? oldAttendance.role ?? "")
+      .trim()
+      .toLowerCase();
+
+    const attendanceDate = String(
+      body.attendanceDate ??
+        body.attendance_date ??
+        oldAttendance.attendanceDate ??
+        oldAttendance.attendance_date ??
+        ""
+    ).trim();
+
+    const checkIn = normalizeText(
+      body.checkIn ?? body.check_in ?? oldAttendance.checkIn ?? oldAttendance.check_in
+    );
+
+    const checkOut = normalizeText(
+      body.checkOut ??
+        body.check_out ??
+        oldAttendance.checkOut ??
+        oldAttendance.check_out
+    );
+
+    const status = normalizeStatus(body.status ?? oldAttendance.status);
+
+    const location = normalizeText(
+      body.location ?? oldAttendance.location ?? null
+    );
+
+    const deviceMac = normalizeText(
+      body.deviceMac ?? body.device_mac ?? oldAttendance.deviceMac ?? oldAttendance.device_mac
+    );
+
+    const checkInPhoto = normalizeText(
+      body.checkInPhoto ??
+        body.check_in_photo ??
+        oldAttendance.checkInPhoto ??
+        oldAttendance.check_in_photo
+    );
+
+    const checkOutPhoto = normalizeText(
+      body.checkOutPhoto ??
+        body.check_out_photo ??
+        oldAttendance.checkOutPhoto ??
+        oldAttendance.check_out_photo
+    );
+
+    const note = normalizeText(body.note ?? oldAttendance.note ?? null);
+
+    const isManual =
+      body.isManual === undefined && body.is_manual === undefined
+        ? Boolean(oldAttendance.isManual ?? oldAttendance.is_manual ?? true)
+        : body.isManual === true ||
+          body.is_manual === true ||
+          String(body.isManual ?? body.is_manual).toLowerCase() === "true";
+
+    if (!fullName) {
+      return errorResponse("Nama wajib diisi", 400);
+    }
+
+    if (!role) {
+      return errorResponse("Role wajib diisi", 400);
+    }
+
+    if (!attendanceDate || !isValidDateOnly(attendanceDate)) {
+      return errorResponse("Tanggal absensi wajib format YYYY-MM-DD", 400);
+    }
 
     await attendance.update({
       userId,
@@ -165,80 +309,65 @@ export async function PUT(request: NextRequest, context: { params: Promise<{ id:
       attendanceDate,
       checkIn,
       checkOut,
-      status: attendanceResult.status,
-      lateMinutes: attendanceResult.lateMinutes,
-      pointPenalty: attendanceResult.pointPenalty,
+      status,
+      location,
+      deviceMac,
+      checkInPhoto,
+      checkOutPhoto,
+      note,
+      isManual,
+
+      // Konsep baru: tidak pakai telat, penalty, point.
+      lateMinutes: null,
+      pointPenalty: 0,
     });
 
-    if (oldUserId !== userId) {
-      await applyUserPointDelta(oldUserId, -oldPointPenalty);
-      await applyUserPointDelta(userId, attendanceResult.pointPenalty);
-    } else {
-      await applyUserPointDelta(userId, attendanceResult.pointPenalty - oldPointPenalty);
-    }
+    const updatedAttendance = await Attendance.findByPk(attendanceId);
 
-    const updatedAttendance = await Attendance.findByPk(id);
-    return successResponse({ message: "Absensi berhasil diupdate", data: updatedAttendance });
+    return successResponse({
+      message: "Absensi berhasil diupdate",
+      data: serializeAttendance(updatedAttendance),
+    });
   } catch (error) {
-    console.error(error);
+    console.error("PUT /api/admin/attendances/[id] ERROR:", error);
     return errorResponse("Gagal update absensi", 500);
   }
 }
 
-export async function DELETE(request: NextRequest, context: { params: Promise<{ id: string }> }) {
+export async function DELETE(
+  request: NextRequest,
+  context: { params: Promise<{ id: string }> }
+) {
   try {
     const { id } = await context.params;
-    const attendance = await Attendance.findByPk(id);
-    if (!attendance) return errorResponse("Absensi tidak ditemukan", 404);
 
-    const oldAttendance = getPlainAttendance(attendance);
-    const userId = toNumberOrNull(oldAttendance.userId ?? oldAttendance.user_id);
-    const pointPenalty = Number(oldAttendance.pointPenalty ?? oldAttendance.point_penalty ?? 0);
+    if (isProtectedDynamicId(id)) {
+      return errorResponse(
+        "Route absensi tidak valid. Gunakan endpoint khusus yang sesuai.",
+        400
+      );
+    }
+
+    const attendanceId = toNumberOrNull(id);
+
+    if (!attendanceId) {
+      return errorResponse("ID absensi tidak valid", 400);
+    }
+
+    const attendance = await Attendance.findByPk(attendanceId);
+
+    if (!attendance) {
+      return errorResponse("Absensi tidak ditemukan", 404);
+    }
 
     await attendance.destroy();
-    await applyUserPointDelta(userId, -pointPenalty);
 
-    return successResponse({ message: "Absensi berhasil dihapus", data: null });
-  } catch (error) {
-    console.error(error);
-    return errorResponse("Gagal hapus absensi", 500);
-  }
-}
-
-// Optional: POST untuk create baru
-export async function POST(request: NextRequest) {
-  try {
-    const body = await request.json();
-    const userId = toNumberOrNull(body.userId ?? body.user_id);
-    const fullName = String(body.fullName ?? body.full_name ?? "").trim();
-    const role = String(body.role ?? "").trim().toLowerCase();
-    const attendanceDate = String(body.attendanceDate ?? body.attendance_date ?? "").trim();
-    const checkIn = body.checkIn ?? body.check_in ?? null;
-    const checkOut = body.checkOut ?? body.check_out ?? null;
-    const inputStatus = normalizeStatus(body.status ?? "hadir");
-
-    if (!fullName) return errorResponse("Nama wajib diisi", 400);
-    if (!role) return errorResponse("Role wajib diisi", 400);
-
-    const attendanceResult = await resolveAttendanceResult({ role, checkIn, inputStatus });
-
-    const newAttendance = await Attendance.create({
-      userId,
-      fullName,
-      role,
-      attendanceDate,
-      checkIn,
-      checkOut,
-      status: attendanceResult.status,
-      lateMinutes: attendanceResult.lateMinutes,
-      pointPenalty: attendanceResult.pointPenalty,
+    return successResponse({
+      message: "Absensi berhasil dihapus",
+      data: null,
     });
-
-    await applyUserPointDelta(userId, attendanceResult.pointPenalty);
-
-    return successResponse({ message: "Absensi berhasil dibuat", data: newAttendance });
   } catch (error) {
-    console.error(error);
-    return errorResponse("Gagal membuat absensi", 500);
+    console.error("DELETE /api/admin/attendances/[id] ERROR:", error);
+    return errorResponse("Gagal hapus absensi", 500);
   }
 }

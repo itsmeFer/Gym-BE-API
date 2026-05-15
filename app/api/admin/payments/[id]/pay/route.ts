@@ -2,6 +2,10 @@ import { NextRequest } from "next/server";
 
 import { Membership, MembershipPlan, User } from "@/database/models";
 import { errorResponse, successResponse } from "@/lib/response";
+import { buildMembershipAgreementPdf } from "@/lib/pdf/membershipAgreementPdf";
+import { sendMembershipAgreementEmail } from "@/lib/mail/sendMembershipAgreementEmail";
+
+export const runtime = "nodejs";
 
 function toNumber(value: unknown, defaultValue = 0) {
   const number = Number(value);
@@ -128,6 +132,10 @@ async function findPaymentWithRelations(id: number) {
   });
 }
 
+function getPlainData(value: any) {
+  return value?.get ? value.get({ plain: true }) : value;
+}
+
 /**
  * POST /api/admin/payments/:id/pay
  *
@@ -244,6 +252,18 @@ export async function POST(
       return errorResponse("Membership ini sudah aktif", 400);
     }
 
+    const memberUser = await User.findByPk(membership.userId);
+
+    if (!memberUser) {
+      return errorResponse("User member tidak ditemukan", 404);
+    }
+
+    const memberEmail = String(memberUser.email ?? "").trim();
+
+    if (!memberEmail) {
+      return errorResponse("Email user member tidak tersedia", 400);
+    }
+
     const plan = membership.planId
       ? await MembershipPlan.findByPk(membership.planId)
       : null;
@@ -310,10 +330,92 @@ export async function POST(
 
     const freshPayment = await findPaymentWithRelations(membership.id);
 
+    if (!freshPayment) {
+      return errorResponse("Pembayaran berhasil, tetapi data terbaru gagal diambil", 500);
+    }
+
+    const freshData = getPlainData(freshPayment);
+    const freshUser = freshData?.user;
+    const freshPlan = freshData?.plan;
+
+    const transactionCode = `PFC-${String(freshData?.id ?? membership.id).padStart(
+      6,
+      "0"
+    )}`;
+
+    let emailSent = false;
+    let emailError: string | null = null;
+
+    try {
+      const pdfBuffer = await buildMembershipAgreementPdf({
+        user: {
+          id: freshUser?.id,
+          name: freshUser?.name,
+          email: freshUser?.email,
+          phone: freshUser?.phone,
+        },
+        membership: {
+          id: freshData?.id,
+          packageName: freshData?.packageName ?? freshData?.package_name,
+          packagePrice: freshData?.packagePrice ?? freshData?.package_price,
+          paymentMethod: freshData?.paymentMethod ?? freshData?.payment_method,
+          paymentStatus: freshData?.paymentStatus ?? freshData?.payment_status,
+          paidAmount: freshData?.paidAmount ?? freshData?.paid_amount,
+          paidAt: freshData?.paidAt ?? freshData?.paid_at,
+          memberStatus: freshData?.memberStatus ?? freshData?.member_status,
+          startedAt: freshData?.startedAt ?? freshData?.started_at,
+          expiredAt: freshData?.expiredAt ?? freshData?.expired_at,
+          notes: freshData?.notes,
+        },
+        plan: freshPlan
+          ? {
+              name: freshPlan?.name,
+              programName: freshPlan?.programName ?? freshPlan?.program_name,
+              packageCode: freshPlan?.packageCode ?? freshPlan?.package_code,
+              durationDays: freshPlan?.durationDays ?? freshPlan?.duration_days,
+              personalTrainerSessions:
+                freshPlan?.personalTrainerSessions ??
+                freshPlan?.personal_trainer_sessions,
+              pilatesSessions:
+                freshPlan?.pilatesSessions ?? freshPlan?.pilates_sessions,
+              freeMembershipDays:
+                freshPlan?.freeMembershipDays ??
+                freshPlan?.free_membership_days,
+              benefits: Array.isArray(freshPlan?.benefits)
+                ? freshPlan.benefits
+                : [],
+            }
+          : null,
+      });
+
+      await sendMembershipAgreementEmail({
+        to: String(freshUser?.email ?? memberEmail),
+        memberName: String(freshUser?.name ?? memberUser.name ?? "Member"),
+        pdfBuffer,
+        transactionCode,
+      });
+
+      emailSent = true;
+    } catch (mailError) {
+      console.error("SEND MEMBERSHIP PDF EMAIL ERROR:", mailError);
+      emailSent = false;
+      emailError =
+        mailError instanceof Error
+          ? mailError.message
+          : "Gagal mengirim email PDF membership";
+    }
+
     return successResponse({
-      message: "Pembayaran berhasil diproses oleh admin. Membership sudah aktif.",
+      message: emailSent
+        ? "Pembayaran berhasil diproses oleh admin. Membership sudah aktif dan PDF berhasil dikirim ke email user."
+        : "Pembayaran berhasil diproses oleh admin. Membership sudah aktif, tetapi PDF gagal dikirim ke email user.",
       data: {
         payment: serializePayment(freshPayment),
+        pdfEmail: {
+          sent: emailSent,
+          to: String(freshUser?.email ?? memberEmail),
+          error: emailError,
+        },
       },
     });
   } catch (error) {

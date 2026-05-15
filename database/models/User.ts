@@ -24,6 +24,12 @@ export interface UserAttributes {
   referredByCode: string | null;
   referredByUserId: number | null;
   isActive: boolean;
+
+  emailVerifiedAt: Date | null;
+  emailVerificationCodeHash: string | null;
+  emailVerificationExpiresAt: Date | null;
+  emailVerificationLastSentAt: Date | null;
+
   createdAt?: Date;
   updatedAt?: Date;
 }
@@ -38,6 +44,10 @@ export type UserCreationAttributes = Optional<
   | "referredByCode"
   | "referredByUserId"
   | "isActive"
+  | "emailVerifiedAt"
+  | "emailVerificationCodeHash"
+  | "emailVerificationExpiresAt"
+  | "emailVerificationLastSentAt"
   | "createdAt"
   | "updatedAt"
 >;
@@ -58,6 +68,11 @@ export class User
   declare referredByCode: string | null;
   declare referredByUserId: number | null;
   declare isActive: boolean;
+
+  declare emailVerifiedAt: Date | null;
+  declare emailVerificationCodeHash: string | null;
+  declare emailVerificationExpiresAt: Date | null;
+  declare emailVerificationLastSentAt: Date | null;
 
   declare readonly createdAt: Date;
   declare readonly updatedAt: Date;
@@ -148,6 +163,30 @@ User.init(
       allowNull: false,
       defaultValue: true,
       field: "is_active",
+    },
+
+    emailVerifiedAt: {
+      type: DataTypes.DATE,
+      allowNull: true,
+      field: "email_verified_at",
+    },
+
+    emailVerificationCodeHash: {
+      type: DataTypes.STRING(255),
+      allowNull: true,
+      field: "email_verification_code_hash",
+    },
+
+    emailVerificationExpiresAt: {
+      type: DataTypes.DATE,
+      allowNull: true,
+      field: "email_verification_expires_at",
+    },
+
+    emailVerificationLastSentAt: {
+      type: DataTypes.DATE,
+      allowNull: true,
+      field: "email_verification_last_sent_at",
     },
   },
   {

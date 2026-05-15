@@ -1,23 +1,17 @@
 import { NextRequest } from "next/server";
-
-import { Attendance, AttendanceSetting, User } from "@/database/models";
+import { Op } from "sequelize";
+import { Attendance, AttendanceSetting } from "@/database/models";
 import { errorResponse, successResponse } from "@/lib/response";
 
 type AttendanceSettingRaw = {
   id: number;
   role: string;
-  checkInTime: string | null;
+  checkInTime?: string | null;
   checkOutTime?: string | null;
   officeLatitude?: number | null;
   officeLongitude?: number | null;
   allowedRadiusMeters?: number | null;
-  lateToleranceMinutes: number;
-  penaltyIntervalMinutes: number;
-  penaltyPointsPerInterval: number;
-  maxLatePenaltyPoints: number;
-  absentPenaltyPoints: number;
   isActive: boolean;
-  note: string | null;
 };
 
 function getJakartaDateString() {
@@ -39,6 +33,36 @@ function getJakartaTimeString() {
   }).format(new Date());
 }
 
+function getJakartaMinutesNow() {
+  const time = getJakartaTimeString();
+  const [hour, minute] = time.slice(0, 5).split(":").map(Number);
+
+  return hour * 60 + minute;
+}
+
+function timeToMinutes(value: string | null | undefined) {
+  if (!value) return null;
+
+  const clean = String(value).trim().slice(0, 5);
+
+  if (!/^\d{2}:\d{2}$/.test(clean)) return null;
+
+  const [hour, minute] = clean.split(":").map(Number);
+
+  if (
+    !Number.isFinite(hour) ||
+    !Number.isFinite(minute) ||
+    hour < 0 ||
+    hour > 23 ||
+    minute < 0 ||
+    minute > 59
+  ) {
+    return null;
+  }
+
+  return hour * 60 + minute;
+}
+
 function toNumberOrNull(value: unknown) {
   if (value === undefined || value === null || value === "") {
     return null;
@@ -54,12 +78,7 @@ function normalizePhoto(value: unknown) {
   }
 
   const text = String(value).trim();
-
-  if (!text) {
-    return null;
-  }
-
-  return text;
+  return text ? text : null;
 }
 
 function getRequiredCheckInPhoto(body: Record<string, unknown>) {
@@ -70,31 +89,8 @@ function getRequiredCheckInPhoto(body: Record<string, unknown>) {
       body.photo_url ??
       body.photoBase64 ??
       body.photo_base64 ??
-      body.photo,
+      body.photo
   );
-}
-
-function timeToMinutes(time: string) {
-  const cleanTime = time.trim().slice(0, 5);
-
-  if (!/^\d{2}:\d{2}$/.test(cleanTime)) {
-    return null;
-  }
-
-  const [hour, minute] = cleanTime.split(":").map(Number);
-
-  if (
-    !Number.isFinite(hour) ||
-    !Number.isFinite(minute) ||
-    hour < 0 ||
-    hour > 23 ||
-    minute < 0 ||
-    minute > 59
-  ) {
-    return null;
-  }
-
-  return hour * 60 + minute;
 }
 
 function toRadians(value: number) {
@@ -119,19 +115,74 @@ function calculateDistanceMeters(params: {
       Math.cos(toLatRad) *
       Math.sin(deltaLonRad / 2) *
       Math.sin(deltaLonRad / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   return earthRadiusMeters * c;
 }
 
 async function getAttendanceSetting(role: string) {
-  return (await AttendanceSetting.findOne({
+  const normalizedRole = String(role ?? "").trim().toLowerCase();
+
+  const exact = (await AttendanceSetting.findOne({
     where: {
-      role,
-      isActive: true,
+      role: normalizedRole,
     },
     raw: true,
   })) as AttendanceSettingRaw | null;
+
+  if (exact) return exact;
+
+  const fallbackAll = (await AttendanceSetting.findOne({
+    where: {
+      role: {
+        [Op.in]: ["all", "semua", "semua_role"],
+      },
+    },
+    raw: true,
+  })) as AttendanceSettingRaw | null;
+
+  return fallbackAll;
+}
+
+function validateCheckInTime(setting: AttendanceSettingRaw | null) {
+  if (!setting) {
+    return {
+      ok: true,
+      message: null,
+    };
+  }
+
+  const checkInMinutes = timeToMinutes(setting.checkInTime);
+  const checkOutMinutes = timeToMinutes(setting.checkOutTime);
+
+  const nowMinutes = getJakartaMinutesNow();
+
+  if (checkInMinutes !== null) {
+    const openAt = checkInMinutes - 10;
+
+    if (nowMinutes < openAt) {
+      return {
+        ok: false,
+        message: `Absen masuk belum dibuka. Tombol aktif mulai 10 menit sebelum jam ${setting.checkInTime?.slice(
+          0,
+          5
+        )}.`,
+      };
+    }
+  }
+
+  if (checkOutMinutes !== null && nowMinutes >= checkOutMinutes) {
+    return {
+      ok: false,
+      message:
+        "Jam absen masuk sudah lewat. Kalau ada kendala, hubungi manager.",
+    };
+  }
+
+  return {
+    ok: true,
+    message: null,
+  };
 }
 
 function validateDistance(params: {
@@ -150,12 +201,22 @@ function validateDistance(params: {
     };
   }
 
+  if (setting.isActive !== true) {
+    return {
+      ok: true,
+      distanceMeters: null,
+      allowedRadiusMeters: setting.allowedRadiusMeters ?? 100,
+      message: null,
+    };
+  }
+
   const officeLatitude = toNumberOrNull(setting.officeLatitude);
   const officeLongitude = toNumberOrNull(setting.officeLongitude);
   const allowedRadiusMeters = Math.max(
     Number(setting.allowedRadiusMeters ?? 100),
-    1,
+    1
   );
+
   const geofenceIsEnabled =
     officeLatitude !== null && officeLongitude !== null;
 
@@ -174,7 +235,7 @@ function validateDistance(params: {
       distanceMeters: null,
       allowedRadiusMeters,
       message:
-        "Lokasi kamu belum terbaca. Aktifkan GPS/lokasi dulu supaya bisa absen.",
+        "Lokasi kamu belum terbaca. Aktifkan GPS/lokasi dulu supaya bisa absen masuk.",
     };
   }
 
@@ -184,7 +245,7 @@ function validateDistance(params: {
       fromLongitude: officeLongitude,
       toLatitude: userLatitude,
       toLongitude: userLongitude,
-    }),
+    })
   );
 
   if (distanceMeters > allowedRadiusMeters) {
@@ -204,77 +265,19 @@ function validateDistance(params: {
   };
 }
 
-function calculateLateResult(params: {
-  checkIn: string;
-  setting: AttendanceSettingRaw | null;
-}) {
-  const { checkIn, setting } = params;
+function serializeAttendance(attendance: any) {
+  if (!attendance) return null;
 
-  if (!setting || !setting.checkInTime) {
-    return {
-      status: "hadir",
-      lateMinutes: 0,
-      pointPenalty: 0,
-    };
-  }
-
-  const expectedMinutes = timeToMinutes(setting.checkInTime);
-  const actualMinutes = timeToMinutes(checkIn);
-
-  if (expectedMinutes === null || actualMinutes === null) {
-    return {
-      status: "hadir",
-      lateMinutes: 0,
-      pointPenalty: 0,
-    };
-  }
-
-  const rawLateMinutes = actualMinutes - expectedMinutes;
-  const lateMinutes = rawLateMinutes > 0 ? rawLateMinutes : 0;
-  const lateToleranceMinutes = Number(setting.lateToleranceMinutes ?? 0);
-  const isLate = actualMinutes > expectedMinutes + lateToleranceMinutes;
-
-  if (!isLate) {
-    return {
-      status: "hadir",
-      lateMinutes: 0,
-      pointPenalty: 0,
-    };
-  }
-
-  const penaltyIntervalMinutes = Math.max(
-    Number(setting.penaltyIntervalMinutes ?? 60),
-    1,
-  );
-  const penaltyPointsPerInterval = Math.max(
-    Number(setting.penaltyPointsPerInterval ?? 1),
-    0,
-  );
-  const maxLatePenaltyPoints = Math.max(
-    Number(setting.maxLatePenaltyPoints ?? 8),
-    0,
-  );
-  const intervalCount = Math.ceil(lateMinutes / penaltyIntervalMinutes);
-  const rawPenaltyPoints = intervalCount * penaltyPointsPerInterval;
-  const cappedPenaltyPoints = Math.min(rawPenaltyPoints, maxLatePenaltyPoints);
+  const plain =
+    typeof attendance.get === "function"
+      ? attendance.get({ plain: true })
+      : attendance;
 
   return {
-    status: "telat",
-    lateMinutes,
-    pointPenalty: -Math.abs(cappedPenaltyPoints),
+    ...plain,
+    workDurationMinutes: 0,
+    workDurationText: "-",
   };
-}
-
-async function applyUserPointDelta(userId: number, delta: number) {
-  if (delta === 0) return;
-
-  const user = await User.findByPk(userId);
-  if (!user) return;
-
-  const currentPoints = Number(user.get("points") ?? 100);
-  const nextPoints = Math.max(currentPoints + delta, 0);
-
-  await user.update({ points: nextPoints });
 }
 
 export async function POST(request: NextRequest) {
@@ -283,19 +286,23 @@ export async function POST(request: NextRequest) {
 
     const userId = toNumberOrNull(body.userId ?? body.user_id);
     const fullName = String(
-      body.fullName ?? body.full_name ?? body.name ?? "",
+      body.fullName ?? body.full_name ?? body.name ?? ""
     ).trim();
     const role = String(body.role ?? "").trim().toLowerCase();
+
     const userLatitude = toNumberOrNull(body.latitude ?? body.lat);
     const userLongitude = toNumberOrNull(
-      body.longitude ?? body.lng ?? body.long,
+      body.longitude ?? body.lng ?? body.long
     );
+
     const location = body.location ? String(body.location).trim() : null;
+
     const deviceMac = body.deviceMac
       ? String(body.deviceMac).trim()
       : body.device_mac
         ? String(body.device_mac).trim()
         : null;
+
     const checkInPhoto = getRequiredCheckInPhoto(body);
     const note = body.note ? String(body.note).trim() : null;
 
@@ -330,6 +337,13 @@ export async function POST(request: NextRequest) {
     }
 
     const setting = await getAttendanceSetting(role);
+
+    const timeResult = validateCheckInTime(setting);
+
+    if (!timeResult.ok) {
+      return errorResponse(timeResult.message ?? "Jam absen belum sesuai", 400);
+    }
+
     const distanceResult = validateDistance({
       userLatitude,
       userLongitude,
@@ -340,10 +354,6 @@ export async function POST(request: NextRequest) {
       return errorResponse(distanceResult.message ?? "Lokasi tidak valid", 400);
     }
 
-    const attendanceResult = calculateLateResult({
-      checkIn: nowTime.slice(0, 5),
-      setting,
-    });
     const locationText =
       userLatitude !== null && userLongitude !== null
         ? `${location ?? "Lokasi user"} (${userLatitude}, ${userLongitude})${
@@ -360,9 +370,9 @@ export async function POST(request: NextRequest) {
       attendanceDate: today,
       checkIn: nowTime,
       checkOut: null,
-      status: attendanceResult.status,
-      lateMinutes: attendanceResult.lateMinutes,
-      pointPenalty: attendanceResult.pointPenalty,
+      status: "hadir",
+      lateMinutes: 0,
+      pointPenalty: 0,
       location: locationText,
       deviceMac,
       checkInPhoto,
@@ -371,21 +381,17 @@ export async function POST(request: NextRequest) {
       isManual: false,
     });
 
-    await applyUserPointDelta(userId, attendanceResult.pointPenalty);
-
     return successResponse({
       message:
-        attendanceResult.pointPenalty < 0
-          ? "Absen masuk berhasil, telat, dan point kamu sudah dikurangi."
-          : "Absen masuk berhasil. Semangat kerja hari ini!",
-      data: attendance,
+        "Absen masuk berhasil. Jangan lupa absen keluar setelah selesai kerja.",
+      data: serializeAttendance(attendance),
     });
   } catch (error) {
     console.error("CHECK IN ERROR:", error);
 
     return errorResponse(
       "Terjadi kesalahan saat absen masuk. Coba lagi sebentar ya.",
-      500,
+      500
     );
   }
 }

@@ -1,9 +1,29 @@
 import { User } from "@/database/models";
 import { errorResponse, successResponse } from "@/lib/response";
 import { generateReferralCode } from "@/lib/referral";
+import { sendEmailVerificationCode } from "@/lib/mail/verification";
 import bcrypt from "bcryptjs";
 
 export const runtime = "nodejs";
+
+const OTP_EXPIRED_MINUTES = 5;
+const RESEND_COOLDOWN_MINUTES = 5;
+
+function generateOtpCode() {
+  return Math.floor(100000 + Math.random() * 900000).toString();
+}
+
+function addMinutes(date: Date, minutes: number) {
+  return new Date(date.getTime() + minutes * 60 * 1000);
+}
+
+function getRemainingSeconds(lastSentAt: Date, cooldownMinutes: number) {
+  const now = Date.now();
+  const allowedAt = lastSentAt.getTime() + cooldownMinutes * 60 * 1000;
+  const remainingMs = allowedAt - now;
+
+  return Math.max(0, Math.ceil(remainingMs / 1000));
+}
 
 export async function POST(request: Request) {
   try {
@@ -31,8 +51,63 @@ export async function POST(request: Request) {
       },
     });
 
-    if (existingUser) {
+    if (existingUser?.emailVerifiedAt) {
       return errorResponse("Email sudah terdaftar", 409);
+    }
+
+    if (existingUser && !existingUser.emailVerifiedAt) {
+      if (existingUser.emailVerificationLastSentAt) {
+        const remainingSeconds = getRemainingSeconds(
+          existingUser.emailVerificationLastSentAt,
+          RESEND_COOLDOWN_MINUTES
+        );
+
+        if (remainingSeconds > 0) {
+          return errorResponse(
+            `Kode verifikasi sudah dikirim. Tunggu ${remainingSeconds} detik untuk kirim ulang.`,
+            429,
+            {
+              remainingSeconds,
+            }
+          );
+        }
+      }
+
+      const otpCode = generateOtpCode();
+      const otpHash = await bcrypt.hash(otpCode, 10);
+      const now = new Date();
+
+      existingUser.name = name;
+      existingUser.phone = phone;
+      existingUser.password = await bcrypt.hash(password, 10);
+      existingUser.emailVerificationCodeHash = otpHash;
+      existingUser.emailVerificationExpiresAt = addMinutes(
+        now,
+        OTP_EXPIRED_MINUTES
+      );
+      existingUser.emailVerificationLastSentAt = now;
+
+      await existingUser.save();
+
+      await sendEmailVerificationCode({
+        to: email,
+        name,
+        code: otpCode,
+      });
+
+      return successResponse(
+        {
+          message:
+            "Kode verifikasi baru berhasil dikirim ke email. Silakan cek inbox atau spam.",
+          data: {
+            email,
+            expiresInSeconds: OTP_EXPIRED_MINUTES * 60,
+            resendAfterSeconds: RESEND_COOLDOWN_MINUTES * 60,
+            needEmailVerification: true,
+          },
+        },
+        200
+      );
     }
 
     const existingPhone = await User.findOne({
@@ -77,6 +152,10 @@ export async function POST(request: Request) {
 
     const hashedPassword = await bcrypt.hash(password, 10);
 
+    const otpCode = generateOtpCode();
+    const otpHash = await bcrypt.hash(otpCode, 10);
+    const now = new Date();
+
     const user = await User.create({
       name,
       phone,
@@ -87,11 +166,23 @@ export async function POST(request: Request) {
       referredByCode,
       referredByUserId,
       isActive: true,
+
+      emailVerifiedAt: null,
+      emailVerificationCodeHash: otpHash,
+      emailVerificationExpiresAt: addMinutes(now, OTP_EXPIRED_MINUTES),
+      emailVerificationLastSentAt: now,
+    });
+
+    await sendEmailVerificationCode({
+      to: email,
+      name,
+      code: otpCode,
     });
 
     return successResponse(
       {
-        message: "Register berhasil",
+        message:
+          "Register berhasil. Kode verifikasi sudah dikirim ke email. Silakan cek inbox atau spam.",
         data: {
           id: user.id,
           name: user.name,
@@ -100,6 +191,9 @@ export async function POST(request: Request) {
           role: user.role,
           referralCode: user.referralCode,
           referredByCode: user.referredByCode,
+          needEmailVerification: true,
+          expiresInSeconds: OTP_EXPIRED_MINUTES * 60,
+          resendAfterSeconds: RESEND_COOLDOWN_MINUTES * 60,
         },
       },
       201
