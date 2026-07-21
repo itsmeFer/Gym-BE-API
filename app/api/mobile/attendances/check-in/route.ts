@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { Op } from "sequelize";
-import { Attendance, AttendanceSetting } from "@/database/models";
+import { Attendance, AttendanceSetting, Membership } from "@/database/models";
 import { errorResponse, successResponse } from "@/lib/response";
 
 type AttendanceSettingRaw = {
@@ -320,6 +320,52 @@ export async function POST(request: NextRequest) {
 
     if (!checkInPhoto) {
       return errorResponse("Foto absen masuk wajib dikirim.", 400);
+    }
+
+    // Key Security Check: Members must have an active paid membership
+    const isEmployee = ["trainer", "karyawan", "admin", "manager"].includes(role);
+    if (!isEmployee) {
+      const activeMem = await Membership.findOne({
+        where: {
+          userId,
+          paymentStatus: "paid",
+          memberStatus: {
+            [Op.in]: ["active", "pending"],
+          },
+        },
+      });
+
+      if (!activeMem) {
+        return errorResponse(
+          "Kamu belum memiliki paket membership aktif yang sudah dibayar.",
+          403
+        );
+      }
+
+      // Key Security Check 2: Check if class shift time has ended (CLOSED)
+      let classEndTime: string | null =
+        body.classEndTime || body.endTime
+          ? String(body.classEndTime || body.endTime)
+          : null;
+
+      if (!classEndTime && note) {
+        const match = note.match(/(\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})/);
+        if (match) {
+          classEndTime = match[2];
+        }
+      }
+
+      if (classEndTime) {
+        const endMinutes = timeToMinutes(classEndTime);
+        const nowMinutes = getJakartaMinutesNow();
+
+        if (endMinutes !== null && nowMinutes > endMinutes + 15) {
+          return errorResponse(
+            `Check-in ditolak! Sesi kelas ini (selesai jam ${classEndTime.slice(0, 5)}) sudah berakhir (CLOSED). Kamu tidak bisa lagi check-in untuk sesi yang sudah lewat.`,
+            400
+          );
+        }
+      }
     }
 
     const today = getJakartaDateString();

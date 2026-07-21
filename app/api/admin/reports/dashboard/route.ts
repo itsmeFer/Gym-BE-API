@@ -681,9 +681,16 @@ export async function GET(request: NextRequest) {
             isPaidMembership(item.paymentStatus ?? item.payment_status),
         );
 
-        const activeMemberships = countedMemberships.filter(
-            (item) => normalizeText(item.memberStatus ?? item.member_status) === "active",
-        );
+        const now = new Date();
+        const activeMemberships = countedMemberships.filter((item) => {
+          const status = normalizeText(item.memberStatus ?? item.member_status);
+          if (status !== "active") return false;
+          const startedAt = item.startedAt ? new Date(item.startedAt) : null;
+          const expiredAt = item.expiredAt ? new Date(item.expiredAt) : null;
+          if (startedAt && startedAt > now) return false;
+          if (expiredAt && expiredAt < now) return false;
+          return true;
+        });
 
         const expiredMemberships = countedMemberships.filter(
             (item) => normalizeText(item.memberStatus ?? item.member_status) === "expired",

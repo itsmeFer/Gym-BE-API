@@ -224,8 +224,8 @@ export async function PUT(
 
     const adminRole = String(admin.get("role") ?? "").toLowerCase();
 
-    if (adminRole !== "admin") {
-      return errorResponse("User yang mengedit pembayaran wajib role admin", 403);
+    if (adminRole !== "admin" && adminRole !== "owner" && adminRole !== "direktur") {
+      return errorResponse("User yang mengedit pembayaran harus role admin, owner, atau direktur", 403);
     }
 
     const history = await Membership.findByPk(historyId);
@@ -279,6 +279,7 @@ export async function PUT(
     }
 
     if (
+      !paymentProofPhoto.startsWith("[") &&
       !paymentProofPhoto.startsWith("data:image/") &&
       !paymentProofPhoto.startsWith("http://") &&
       !paymentProofPhoto.startsWith("https://") &&

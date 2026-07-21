@@ -4,9 +4,11 @@ import { Op } from "sequelize";
 
 import { User } from "@/database/models";
 import { errorResponse, successResponse } from "@/lib/response";
+import { getAdminFromRequest } from "@/lib/admin-auth";
 
 const STAFF_ROLES = [
   "admin",
+  "owner",
   "direktur",
   "manager",
   "karyawan",
@@ -101,8 +103,13 @@ function generateReferralCode(name: string) {
   return `PG-${cleanName || "USER"}-${random}`;
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    const auth = await getAdminFromRequest(request);
+    if (!auth.success) {
+      return errorResponse(auth.message, 403);
+    }
+
     const users = (await User.findAll({
       raw: true,
       order: [["id", "DESC"]],
@@ -121,6 +128,11 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
+    const auth = await getAdminFromRequest(request);
+    if (!auth.success) {
+      return errorResponse(auth.message, 403);
+    }
+
     const body = await request.json();
 
     const name = String(
@@ -147,7 +159,7 @@ export async function POST(request: NextRequest) {
 
     if (!role) {
       return errorResponse(
-        "Role hanya boleh admin, direktur, manager, karyawan, trainer, sales, atau kasir",
+        "Role hanya boleh admin, owner, direktur, manager, karyawan, trainer, sales, atau kasir",
         400,
       );
     }

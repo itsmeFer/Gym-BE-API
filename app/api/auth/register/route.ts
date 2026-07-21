@@ -45,14 +45,26 @@ export async function POST(request: Request) {
       return errorResponse("Password minimal 6 karakter", 400);
     }
 
-    const existingUser = await User.findOne({
-      where: {
-        email,
-      },
+    let existingUser = await User.findOne({
+      where: { email },
     });
 
     if (existingUser?.emailVerifiedAt) {
       return errorResponse("Email sudah terdaftar", 409);
+    }
+
+    const existingPhone = await User.findOne({
+      where: { phone },
+    });
+
+    if (existingPhone && existingPhone.id !== existingUser?.id) {
+      if (existingPhone.emailVerifiedAt) {
+        return errorResponse("No HP sudah terdaftar", 409);
+      } else {
+        // The phone is attached to a DIFFERENT unverified account.
+        // We can safely delete this ghost account so the phone can be reused.
+        await existingPhone.destroy();
+      }
     }
 
     if (existingUser && !existingUser.emailVerifiedAt) {
@@ -66,9 +78,7 @@ export async function POST(request: Request) {
           return errorResponse(
             `Kode verifikasi sudah dikirim. Tunggu ${remainingSeconds} detik untuk kirim ulang.`,
             429,
-            {
-              remainingSeconds,
-            }
+            { remainingSeconds }
           );
         }
       }
@@ -108,16 +118,6 @@ export async function POST(request: Request) {
         },
         200
       );
-    }
-
-    const existingPhone = await User.findOne({
-      where: {
-        phone,
-      },
-    });
-
-    if (existingPhone) {
-      return errorResponse("No HP sudah terdaftar", 409);
     }
 
     let referredByUserId: number | null = null;

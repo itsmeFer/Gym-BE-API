@@ -138,6 +138,7 @@ export async function PUT(
       .toLowerCase();
 
     const notes = body.notes ? String(body.notes).trim() : null;
+    const paymentProofPhoto = body.paymentProofPhoto ? String(body.paymentProofPhoto) : null;
 
     if (!salesUserId) {
       return errorResponse("Sales user wajib dikirim", 400);
@@ -217,6 +218,7 @@ export async function PUT(
       packagePrice: Number(planData.price ?? 0),
       salesStatus: salesStatus as any,
       notes,
+      paymentProofPhoto,
     });
 
     const freshMembership = await findMembershipWithRelations(membership.id);

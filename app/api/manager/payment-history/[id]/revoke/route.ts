@@ -205,8 +205,8 @@ export async function POST(
 
     const adminRole = String(admin.get("role") ?? "").toLowerCase();
 
-    if (adminRole !== "admin") {
-      return errorResponse("User yang mencabut membership wajib role admin", 403);
+    if (adminRole !== "admin" && adminRole !== "owner" && adminRole !== "direktur" && adminRole !== "manager") {
+      return errorResponse("User yang mencabut membership harus role admin, owner, direktur, atau manager", 403);
     }
 
     const history = await Membership.findByPk(historyId);

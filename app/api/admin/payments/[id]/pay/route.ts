@@ -200,6 +200,7 @@ export async function POST(
     }
 
     if (
+      !paymentProofPhoto.startsWith("[") &&
       !paymentProofPhoto.startsWith("data:image/") &&
       !paymentProofPhoto.startsWith("http://") &&
       !paymentProofPhoto.startsWith("https://") &&
@@ -234,8 +235,8 @@ export async function POST(
 
     const adminRole = String(admin.get("role") ?? "").toLowerCase();
 
-    if (adminRole !== "admin") {
-      return errorResponse("User yang memproses pembayaran wajib role admin", 403);
+    if (adminRole !== "admin" && adminRole !== "owner" && adminRole !== "direktur") {
+      return errorResponse("User yang memproses pembayaran harus role admin, owner, atau direktur", 403);
     }
 
     const membership = await Membership.findByPk(paymentId);
@@ -288,8 +289,13 @@ export async function POST(
 
     const totalActiveDays = Math.max(durationDays + freeMembershipDays, 1);
 
-    const startedAt = new Date();
-    const expiredAt = addDays(startedAt, totalActiveDays);
+    const startedAt = membership.startedAt
+      ? new Date(membership.startedAt)
+      : null;
+    const expiredAt = membership.expiredAt
+      ? new Date(membership.expiredAt)
+      : null;
+    const paidAt = new Date();
 
     const oldNotes = membership.notes ? String(membership.notes) : "";
 
@@ -313,7 +319,7 @@ export async function POST(
       paymentMethod,
       paymentStatus: "paid",
       paidAmount,
-      paidAt: startedAt,
+      paidAt: paidAt,
 
       paymentProofPhoto,
 

@@ -119,7 +119,7 @@ export async function POST(request: Request) {
       userData.emailVerifiedAt ?? userData.email_verified_at ?? null;
 
     // Hanya customer yang wajib verifikasi email.
-    // Admin, manager, sales, kasir, trainer, karyawan, direktur tetap bisa login biasa.
+    // Admin, manager, sales, kasir, trainer, karyawan, direktur, owner tetap bisa login biasa.
     if (role === "customer" && !emailVerifiedAt) {
       return errorResponse(
         "Email belum diverifikasi. Silakan verifikasi email terlebih dahulu.",

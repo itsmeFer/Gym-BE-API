@@ -32,6 +32,7 @@ function serializeMembership(membership: any) {
     expiredAt: data.expiredAt,
 
     notes: data.notes,
+    paymentProofPhoto: data.paymentProofPhoto ?? null,
     createdAt: data.createdAt,
     updatedAt: data.updatedAt,
 
@@ -116,6 +117,7 @@ export async function POST(request: NextRequest) {
       .toLowerCase();
 
     const notes = body.notes ? String(body.notes).trim() : null;
+    const paymentProofPhoto = body.paymentProofPhoto ? String(body.paymentProofPhoto) : null;
 
     if (!salesUserId) {
       return errorResponse("Sales user wajib dikirim", 400);
@@ -197,6 +199,7 @@ export async function POST(request: NextRequest) {
       expiredAt: null,
 
       notes,
+      paymentProofPhoto,
     });
 
     const freshMembership = await Membership.findByPk(membership.id, {

@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  serverExternalPackages: ['bcryptjs', 'sequelize', 'pg', 'pg-hstore'],
   async headers() {
     return [
       {

@@ -1,6 +1,8 @@
 import { User, Membership } from "@/database/models";
 import { errorResponse, successResponse } from "@/lib/response";
 
+import { Op } from "sequelize";
+
 function serializeCustomer(user: any) {
   const data = user.get ? user.get({ plain: true }) : user;
 
@@ -27,6 +29,9 @@ export async function GET() {
     const customers = await User.findAll({
       where: {
         role: "customer",
+        emailVerifiedAt: {
+          [Op.ne]: null,
+        },
       },
       attributes: ["id", "name", "phone", "email", "role", "isActive"],
       include: [

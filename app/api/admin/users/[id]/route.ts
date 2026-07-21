@@ -7,6 +7,7 @@ import { errorResponse, successResponse } from "@/lib/response";
 
 const STAFF_ROLES = [
   "admin",
+  "owner",
   "direktur",
   "manager",
   "karyawan",
@@ -179,7 +180,7 @@ export async function PUT(
 
     if (body.role !== undefined && !role) {
       return errorResponse(
-        "Role hanya boleh admin, direktur, manager, karyawan, trainer, atau sales",
+        "Role hanya boleh admin, owner, direktur, manager, karyawan, trainer, atau sales",
         400,
       );
     }

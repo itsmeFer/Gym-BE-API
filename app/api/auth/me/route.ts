@@ -29,6 +29,9 @@ type MeUserData = {
 
   emailVerifiedAt?: Date | string | null;
   email_verified_at?: Date | string | null;
+
+  photoUrl?: string | null;
+  photo_url?: string | null;
 };
 
 function serializeMeUser(userData: MeUserData) {
@@ -57,6 +60,8 @@ function serializeMeUser(userData: MeUserData) {
 
     emailVerifiedAt:
       userData.emailVerifiedAt ?? userData.email_verified_at ?? null,
+
+    photoUrl: userData.photoUrl ?? userData.photo_url ?? null,
   };
 }
 

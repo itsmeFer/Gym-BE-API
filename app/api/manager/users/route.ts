@@ -7,6 +7,7 @@ import { errorResponse, successResponse } from "@/lib/response";
 
 const MANAGER_ALLOWED_ROLES = [
   "admin",
+  "owner",
   "direktur",
   "manager",
   "karyawan",
@@ -187,7 +188,7 @@ export async function POST(request: NextRequest) {
 
     if (!role) {
       return errorResponse(
-        "Role hanya boleh admin, direktur, manager, karyawan, trainer, sales, atau customer",
+        "Role hanya boleh admin, owner, direktur, manager, karyawan, trainer, sales, atau customer",
         400,
       );
     }

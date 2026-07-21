@@ -121,8 +121,8 @@ export async function POST(
 
     const adminRole = String(admin.get("role") ?? "").toLowerCase();
 
-    if (adminRole !== "admin" && adminRole !== "kasir") {
-      return errorResponse("User ini bukan admin/kasir", 403);
+    if (adminRole !== "admin" && adminRole !== "kasir" && adminRole !== "owner" && adminRole !== "direktur") {
+      return errorResponse("User ini bukan admin/kasir/owner/direktur", 403);
     }
 
     const history = await Membership.findByPk(historyId);

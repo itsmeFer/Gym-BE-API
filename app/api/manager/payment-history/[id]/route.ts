@@ -253,8 +253,8 @@ export async function PUT(
 
     const adminRole = normalizeRole(admin.get("role"));
 
-    if (adminRole !== "admin") {
-      return errorResponse("User yang memproses pembayaran wajib role admin", 403);
+    if (adminRole !== "admin" && adminRole !== "manager" && adminRole !== "direktur" && adminRole !== "owner") {
+      return errorResponse("User yang memproses pembayaran wajib role admin, manager, direktur, atau owner", 403);
     }
 
     const history = await Membership.findByPk(historyId);

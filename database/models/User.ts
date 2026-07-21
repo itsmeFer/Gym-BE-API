@@ -3,6 +3,7 @@ import { sequelize } from "@/database/connection";
 
 export type UserRole =
   | "admin"
+  | "owner"
   | "direktur"
   | "manager"
   | "karyawan"
@@ -24,11 +25,12 @@ export interface UserAttributes {
   referredByCode: string | null;
   referredByUserId: number | null;
   isActive: boolean;
-
   emailVerifiedAt: Date | null;
   emailVerificationCodeHash: string | null;
   emailVerificationExpiresAt: Date | null;
   emailVerificationLastSentAt: Date | null;
+
+  photoUrl: string | null;
 
   createdAt?: Date;
   updatedAt?: Date;
@@ -48,6 +50,7 @@ export type UserCreationAttributes = Optional<
   | "emailVerificationCodeHash"
   | "emailVerificationExpiresAt"
   | "emailVerificationLastSentAt"
+  | "photoUrl"
   | "createdAt"
   | "updatedAt"
 >;
@@ -73,6 +76,7 @@ export class User
   declare emailVerificationCodeHash: string | null;
   declare emailVerificationExpiresAt: Date | null;
   declare emailVerificationLastSentAt: Date | null;
+  declare photoUrl: string | null;
 
   declare readonly createdAt: Date;
   declare readonly updatedAt: Date;
@@ -114,6 +118,7 @@ User.init(
     role: {
       type: DataTypes.ENUM(
         "admin",
+        "owner",
         "direktur",
         "manager",
         "karyawan",
@@ -187,6 +192,12 @@ User.init(
       type: DataTypes.DATE,
       allowNull: true,
       field: "email_verification_last_sent_at",
+    },
+
+    photoUrl: {
+      type: DataTypes.STRING(255),
+      allowNull: true,
+      field: "photo_url",
     },
   },
   {
