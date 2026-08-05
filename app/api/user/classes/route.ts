@@ -186,10 +186,11 @@ export async function GET(request: NextRequest) {
 
     for (const cls of userClasses) {
       const copy = { ...cls };
-      const { isClosed, statusText } = computeClassStatus(copy.time, copy.endTime);
+      const { isClosed, isNotYetOpen, statusText } = computeClassStatus(copy.time, copy.endTime);
 
       copy.sessionLabel = copy.sessionLabel || computeSessionLabel(copy.time);
       copy.isClosed = isClosed;
+      copy.isNotYetOpen = isNotYetOpen;
       copy.statusText = statusText;
 
       // High priority: If admin explicitly assigned PTs to this class, use ONLY those assigned PTs

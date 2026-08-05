@@ -73,7 +73,7 @@ async function seed() {
         INSERT INTO users (
           name, email, phone, password, role, referral_code, is_active, points, max_points, created_at, updated_at
         ) VALUES (
-          $1, $2, $3, $4, $5, $6, true, 100, 100, NOW(), NOW()
+          $1, $2, $3, $4, $5, $6, true, 0, 100, NOW(), NOW()
         )
       `;
       await client.query(query, [u.name, u.email, u.phone, hashedPassword, u.role, u.referral_code]);

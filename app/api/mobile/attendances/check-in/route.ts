@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { Op } from "sequelize";
-import { Attendance, AttendanceSetting, Membership } from "@/database/models";
+import { Attendance, AttendanceSetting, Membership, User, PointHistory, MembershipPlan } from "@/database/models";
 import { errorResponse, successResponse } from "@/lib/response";
 
 type AttendanceSettingRaw = {
@@ -342,6 +342,31 @@ export async function POST(request: NextRequest) {
         );
       }
 
+      if (activeMem.planId) {
+        const plan = await MembershipPlan.findByPk(activeMem.planId);
+        if (plan) {
+          const totalSessions = Number(plan.dataValues.personalTrainerSessions ?? (plan.dataValues as any).personal_trainer_sessions ?? 0) +
+                                Number(plan.dataValues.pilatesSessions ?? (plan.dataValues as any).pilates_sessions ?? 0);
+          if (totalSessions > 0) {
+            const attendanceCount = await Attendance.count({
+              where: {
+                userId,
+                createdAt: {
+                  [Op.gte]: activeMem.startedAt || activeMem.createdAt,
+                },
+              },
+            });
+
+            if (attendanceCount >= totalSessions) {
+              return errorResponse(
+                `Check-in ditolak! Sisa sesi pertemuan kamu sudah habis (0/${totalSessions} sesi). Silakan beli paket baru.`,
+                403
+              );
+            }
+          }
+        }
+      }
+
       // Key Security Check 2: Check if class shift time has ended (CLOSED)
       let classEndTime: string | null =
         body.classEndTime || body.endTime
@@ -426,6 +451,45 @@ export async function POST(request: NextRequest) {
       note,
       isManual: false,
     });
+
+    // Reward +1 point to assigned PT if this check-in is for a PT/Class session
+    try {
+      let targetPtName: string | null = (typeof (body as any).ptName === "string" ? (body as any).ptName : typeof (body as any).assignedPtName === "string" ? (body as any).assignedPtName : null);
+      let classTitle: string = typeof (body as any).classTitle === "string" ? (body as any).classTitle : "Kelas Gym";
+
+      if (!targetPtName && note) {
+        const ptMatch = note.match(/PT:\s*([^•\n]+)/);
+        if (ptMatch) {
+          targetPtName = ptMatch[1].trim();
+        }
+        const classMatch = note.match(/Kelas:\s*([^•\n]+)/);
+        if (classMatch) {
+          classTitle = classMatch[1].trim();
+        }
+      }
+
+      if (targetPtName && targetPtName !== "Coach Duty") {
+        const ptUser = await User.findOne({
+          where: {
+            name: targetPtName,
+          },
+        });
+
+        if (ptUser) {
+          await User.increment("points", { by: 1, where: { id: ptUser.id } });
+
+          await PointHistory.create({
+            userId: ptUser.id,
+            relatedUserId: userId,
+            amount: 1,
+            transactionType: "MEMBER_ATTENDANCE",
+            description: `Member ${fullName || "Member"} (ID: ${userId}) absen di kelas "${classTitle}" bersama PT ${ptUser.name}`,
+          });
+        }
+      }
+    } catch (ptError) {
+      console.error("Failed to add PT point for check-in:", ptError);
+    }
 
     return successResponse({
       message:

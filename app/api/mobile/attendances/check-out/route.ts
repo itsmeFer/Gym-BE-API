@@ -368,6 +368,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    if (!attendance.checkInPhoto) {
+      return errorResponse(
+        "Foto absen masuk belum ter-upload. Silakan lakukan check-in foto terlebih dahulu.",
+        400
+      );
+    }
+
     if (attendance.checkOut) {
       return errorResponse("Kamu sudah absen keluar hari ini.", 409);
     }

@@ -160,7 +160,7 @@ export async function GET(request: Request) {
       return errorResponse("User tidak ditemukan", 404);
     }
 
-    const membership = await Membership.findOne({
+    const memberships = await Membership.findAll({
       where: {
         userId,
         paymentStatus: {
@@ -176,25 +176,32 @@ export async function GET(request: Request) {
       ],
     });
 
-    if (!membership) {
+    if (memberships.length === 0) {
       return successResponse({
         message: "User belum punya paket membership",
         data: {
           hasMembership: false,
           membership: null,
+          memberships: [],
         },
       });
     }
 
-    const plan = membership.planId
-      ? await MembershipPlan.findByPk(membership.planId)
-      : null;
+    const serializedMemberships = await Promise.all(
+      memberships.map(async (m) => {
+        const plan = m.planId
+          ? await MembershipPlan.findByPk(m.planId)
+          : null;
+        return serializeMembership(m, user, plan);
+      })
+    );
 
     return successResponse({
       message: "Paket membership user berhasil diambil",
       data: {
         hasMembership: true,
-        membership: serializeMembership(membership, user, plan),
+        membership: serializedMemberships[0],
+        memberships: serializedMemberships,
       },
     });
   } catch (error) {

@@ -134,7 +134,7 @@ User.init(
     points: {
       type: DataTypes.INTEGER,
       allowNull: false,
-      defaultValue: 100,
+      defaultValue: 0,
     },
 
     maxPoints: {

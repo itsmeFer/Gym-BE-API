@@ -8,6 +8,14 @@ export async function updateUserPoints(userId: number): Promise<void> {
   if (!userId) return;
 
   try {
+    const user = await User.findByPk(userId);
+    if (!user) return;
+
+    // Do NOT overwrite points for trainers or customers
+    if (user.role === "trainer" || user.role === "customer") {
+      return;
+    }
+
     // Hitung total penalty dari semua attendance user ini
     const attendances = await Attendance.findAll({
       where: { userId },

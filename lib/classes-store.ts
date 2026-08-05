@@ -20,6 +20,7 @@ export interface CustomClass {
   assignedPtNames: string[];
   trainerId?: number | null;
   isClosed?: boolean;
+  isNotYetOpen?: boolean;
   statusText?: string;
 }
 
@@ -54,18 +55,30 @@ export function computeClassStatus(time: string, endTime: string) {
 
   const nowMinutes = timeToMinutes(getJakartaTimeString());
   const startMinutes = timeToMinutes(time);
-  const endMinutes = timeToMinutes(endTime);
+  let endMinutes = timeToMinutes(endTime);
+  if (endMinutes === 0 || endMinutes <= startMinutes) {
+    endMinutes = 24 * 60; // 00:00 midnight
+  }
+
+  // Check-in window: opens exactly at class start time (no early check-in)
+  const checkInOpenMinutes = startMinutes;
 
   const isClosed = nowMinutes > endMinutes;
+  const isNotYetOpen = !isClosed && nowMinutes < checkInOpenMinutes;
+
   let statusText = "Sesi Berlangsung";
   if (isClosed) {
     statusText = "Closed / Selesai";
-  } else if (nowMinutes < startMinutes - 30) {
-    statusText = "Belum Dibuka";
+  } else if (isNotYetOpen) {
+    // Show exact class start time
+    const openH = Math.floor(startMinutes / 60).toString().padStart(2, "0");
+    const openM = (startMinutes % 60).toString().padStart(2, "0");
+    statusText = `Belum Dibuka (check-in mulai ${openH}:${openM})`;
   }
 
-  return { isClosed, statusText };
+  return { isClosed, isNotYetOpen, statusText };
 }
+
 
 export async function initializeClassesFromPlans(): Promise<CustomClass[]> {
   try {

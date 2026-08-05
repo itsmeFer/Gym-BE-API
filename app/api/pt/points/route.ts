@@ -14,27 +14,24 @@ export async function GET(request: Request) {
       return errorResponse("Forbidden: Only trainers can access this", 403);
     }
 
-    const user = await User.findByPk(payload.id, {
-      include: [
-        {
-          model: PointHistory,
-          as: "pointHistories",
-          order: [["createdAt", "DESC"]],
-          limit: 20,
-          include: [
-            {
-              model: User,
-              as: "user",
-              attributes: ["id", "name"],
-            }
-          ]
-        },
-      ],
-    });
+    const user = await User.findByPk(payload.id);
 
     if (!user) {
       return errorResponse("User not found", 404);
     }
+
+    const history = await PointHistory.findAll({
+      where: { userId: payload.id },
+      order: [["createdAt", "DESC"]],
+      limit: 30,
+      include: [
+        {
+          model: User,
+          as: "relatedUser",
+          attributes: ["id", "name", "email"],
+        },
+      ],
+    });
 
     // Include recent PT Sessions for extra details if needed
     const recentSessions = await PtSession.findAll({
@@ -51,9 +48,9 @@ export async function GET(request: Request) {
     });
 
     return successResponse({
-      points: user.points,
-      maxPoints: user.maxPoints,
-      history: user.get("pointHistories") || [],
+      points: user.points || 0,
+      maxPoints: user.maxPoints || 100,
+      history: history || [],
       recentSessions: recentSessions || [],
     });
   } catch (error: any) {

@@ -243,7 +243,7 @@ CREATE TABLE public.users (
     email character varying(150) NOT NULL,
     password character varying(255) NOT NULL,
     role public.enum_users_role DEFAULT 'customer'::public.enum_users_role NOT NULL,
-    points integer DEFAULT 100 NOT NULL,
+    points integer DEFAULT 0 NOT NULL,
     max_points integer DEFAULT 100 NOT NULL,
     referral_code character varying(50) NOT NULL,
     referred_by_code character varying(50),
