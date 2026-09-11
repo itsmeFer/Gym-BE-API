@@ -1,5 +1,10 @@
+import { NextRequest } from "next/server";
+import { Op } from "sequelize";
 import { Membership, User, MembershipPlan } from "@/database/models";
 import { errorResponse, successResponse } from "@/lib/response";
+import { getTokenFromRequest, verifyToken } from "@/lib/auth";
+
+export const runtime = "nodejs";
 
 function normalizeStatus(value: unknown) {
   return String(value ?? "").trim().toLowerCase();
@@ -21,9 +26,39 @@ function toNumber(value: unknown) {
   return Number.isFinite(number) ? number : 0;
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    const token = getTokenFromRequest(request);
+    const userPayload = token ? verifyToken(token) : null;
+
+    if (!userPayload) {
+      return errorResponse("Autentikasi gagal. Silakan login kembali.", 401);
+    }
+
+    const allowedRoles = ["admin", "kasir", "owner", "direktur", "manager"];
+    if (!allowedRoles.includes(userPayload.role.toLowerCase())) {
+      return errorResponse("Akses ditolak: Anda tidak memiliki akses ke data membership", 403);
+    }
+
+    const searchParams = request.nextUrl.searchParams;
+    const startDateParam = searchParams.get("startDate");
+    const endDateParam = searchParams.get("endDate");
+
+    const whereClause: Record<string, any> = {};
+
+    if (startDateParam && endDateParam) {
+      const start = new Date(`${startDateParam}T00:00:00.000Z`);
+      const end = new Date(`${endDateParam}T23:59:59.999Z`);
+
+      if (!isNaN(start.getTime()) && !isNaN(end.getTime())) {
+        whereClause.createdAt = {
+          [Op.between]: [start, end],
+        };
+      }
+    }
+
     const memberships = await Membership.findAll({
+      where: whereClause,
       include: [
         {
           model: User,

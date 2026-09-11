@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 
+import { sequelize } from "@/database/connection";
 import { Membership, MembershipPlan, User } from "@/database/models";
 import { errorResponse, successResponse } from "@/lib/response";
 import { getTokenFromRequest, verifyToken } from "@/lib/auth";
@@ -91,21 +92,21 @@ export async function POST(
     const token = getTokenFromRequest(request);
     const userPayload = token ? verifyToken(token) : null;
 
-    const body = await request.json();
-
-    const inputAdminUserId = toNumber(
-      body.adminUserId ??
-        body.admin_user_id ??
-        body.cashierUserId ??
-        body.cashier_user_id,
-      0
-    );
-
-    const resolvedAdminId = userPayload?.id ?? inputAdminUserId;
-
-    if (!resolvedAdminId) {
-      return errorResponse("Admin user wajib dikirim atau terautentikasi", 400);
+    if (!userPayload) {
+      return errorResponse("Autentikasi gagal. Silakan login kembali.", 401);
     }
+
+    const allowedRoles = ["admin", "kasir", "owner", "direktur", "manager"];
+    if (!allowedRoles.includes(userPayload.role.toLowerCase())) {
+      return errorResponse(
+        "User yang memproses harus role admin, kasir, manager, owner, atau direktur",
+        403
+      );
+    }
+
+    const resolvedAdminId = userPayload.id;
+
+    const body = await request.json().catch(() => ({}));
 
     const revokeReason = String(
       body.revokeReason ?? body.revoke_reason ?? ""
@@ -119,13 +120,6 @@ export async function POST(
 
     if (!admin) {
       return errorResponse("Admin/Kasir tidak ditemukan", 404);
-    }
-
-    const adminRole = String(admin.get("role") ?? "").toLowerCase();
-    const allowedRoles = ["admin", "kasir", "owner", "direktur", "manager"];
-
-    if (!allowedRoles.includes(adminRole)) {
-      return errorResponse("User yang memproses harus role admin, kasir, manager, owner, atau direktur", 403);
     }
 
     const history = await Membership.findByPk(historyId);
@@ -156,13 +150,25 @@ export async function POST(
       ? `${oldNotes}\n\n${revocationLog}`
       : revocationLog;
 
-    await history.update({
-      memberStatus: "revoked",
-      salesStatus: "completed",
-      expiredAt: new Date(),
-      processedByUserId: resolvedAdminId,
-      notes: newNotes,
-    });
+    const t = await sequelize.transaction();
+
+    try {
+      await history.update(
+        {
+          memberStatus: "revoked",
+          salesStatus: "completed",
+          expiredAt: new Date(),
+          processedByUserId: resolvedAdminId,
+          notes: newNotes,
+        },
+        { transaction: t }
+      );
+
+      await t.commit();
+    } catch (dbError) {
+      await t.rollback();
+      throw dbError;
+    }
 
     const freshHistory = await findHistoryWithRelations(history.id);
 

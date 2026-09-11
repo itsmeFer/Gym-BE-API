@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { Membership, MembershipPlan, User } from "@/database/models";
 import { buildMembershipAgreementPdf } from "@/lib/pdf/membershipAgreementPdf";
+import { getTokenFromRequest, verifyToken } from "@/lib/auth";
 
 export const runtime = "nodejs";
 
@@ -66,14 +67,6 @@ async function findHistoryWithRelations(id: number) {
  * GET /api/admin/payment-history/[id]/agreement-pdf
  *
  * Generate ulang PDF Membership Agreement.
- *
- * Query:
- * ?viewerUserId=1
- * atau:
- * ?viewerRole=admin
- *
- * Optional:
- * &download=true
  */
 export async function GET(
     request: NextRequest,
@@ -88,43 +81,36 @@ export async function GET(
         }
 
         const searchParams = request.nextUrl.searchParams;
-
-        const viewerRole = String(searchParams.get("viewerRole") ?? "")
-            .trim()
-            .toLowerCase();
-
-        const viewerUserId = toNumber(searchParams.get("viewerUserId"), 0);
+        const token = getTokenFromRequest(request) || searchParams.get("token");
+        const userPayload = token ? verifyToken(token) : null;
+        const allowedRoles = ["admin", "kasir", "owner", "direktur", "manager"];
 
         let allowed = false;
 
-        if (viewerRole === "admin" || viewerRole === "manager") {
+        if (userPayload && allowedRoles.includes(userPayload.role.toLowerCase())) {
             allowed = true;
         }
+
+        const viewerUserId = toNumber(searchParams.get("viewerUserId"), 0);
 
         if (!allowed && viewerUserId) {
             const viewer = await User.findByPk(viewerUserId, {
                 attributes: ["id", "name", "email", "phone", "role", "isActive"],
             });
 
-            if (!viewer) {
-                return jsonError("User pembuka PDF tidak ditemukan", 404);
-            }
+            if (viewer) {
+                const role = String(viewer.get("role") ?? "").toLowerCase();
+                const isActive = Boolean(viewer.get("isActive") ?? true);
 
-            const role = String(viewer.get("role") ?? "").toLowerCase();
-            const isActive = Boolean(viewer.get("isActive") ?? true);
-
-            if (!isActive) {
-                return jsonError("User pembuka PDF tidak aktif", 403);
-            }
-
-            if (role === "admin" || role === "manager") {
-                allowed = true;
+                if (isActive && allowedRoles.includes(role)) {
+                    allowed = true;
+                }
             }
         }
 
         if (!allowed) {
             return jsonError(
-                "Hanya admin atau manager yang boleh membuka PDF ini",
+                "Akses ditolak: Anda tidak memiliki izin untuk mengunduh PDF perjanjian ini",
                 403
             );
         }
