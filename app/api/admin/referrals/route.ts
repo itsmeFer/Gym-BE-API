@@ -1,7 +1,8 @@
+import { NextRequest } from "next/server";
 import { Op } from "sequelize";
-
 import { Membership, User } from "@/database/models";
 import { errorResponse, successResponse } from "@/lib/response";
+import { getTokenFromRequest, verifyToken } from "@/lib/auth";
 
 export const runtime = "nodejs";
 
@@ -9,16 +10,10 @@ type StatusType = "active" | "pending" | "failed";
 
 function serializeDate(value: unknown) {
   if (!value) return null;
-
-  if (value instanceof Date) {
-    return value.toISOString();
-  }
+  if (value instanceof Date) return value.toISOString();
 
   const parsed = new Date(String(value));
-
-  if (Number.isNaN(parsed.getTime())) {
-    return null;
-  }
+  if (Number.isNaN(parsed.getTime())) return null;
 
   return parsed.toISOString();
 }
@@ -36,7 +31,6 @@ function getMembershipStatus(membership: any): StatusType {
   if (!membership) return "pending";
 
   const data = getPlain(membership) as any;
-
   const paymentStatus = String(
     data.paymentStatus ?? data.payment_status ?? "",
   ).toLowerCase();
@@ -83,21 +77,26 @@ function getPerformanceLabel(total: number, active: number, failed: number) {
   if (total <= 0) return "Belum Ada Data";
 
   const conversionRate = Math.round((active / total) * 100);
-
   if (conversionRate >= 75 && total >= 3) return "Sangat Bagus";
   if (conversionRate >= 50) return "Bagus";
   if (failed > active && total >= 3) return "Perlu Dipantau";
   return "Berkembang";
 }
 
-/**
- * GET /api/admin/referrals
- *
- * Khusus admin:
- * Melihat performa referral antar user/customer.
- */
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    const token = getTokenFromRequest(request);
+    const userPayload = token ? verifyToken(token) : null;
+
+    if (!userPayload) {
+      return errorResponse("Autentikasi gagal. Silakan login kembali.", 401);
+    }
+
+    const allowedRoles = ["admin", "kasir", "owner", "direktur", "manager"];
+    if (!allowedRoles.includes(userPayload.role.toLowerCase())) {
+      return errorResponse("Akses ditolak: Anda tidak memiliki wewenang melihat data referral", 403);
+    }
+
     const referredUsers = await User.findAll({
       where: {
         role: "customer",
@@ -116,7 +115,6 @@ export async function GET() {
         referredUsers
           .map((user) => {
             const data = getPlain(user) as any;
-
             return toNumber(
               data.referredByUserId ?? data.referred_by_user_id,
               0,
@@ -138,26 +136,22 @@ export async function GET() {
       : [];
 
     const referrerMap = new Map<number, any>();
-
     referrers.forEach((referrer) => {
       const data = getPlain(referrer) as any;
       referrerMap.set(Number(data.id), data);
     });
 
-    const details = await Promise.all(
-      referredUsers.map(async (referredUser) => {
-        const referredData = getPlain(referredUser) as any;
+    const referredUserIds = referredUsers.map((u) => {
+      const plain = getPlain(u) as any;
+      return Number(plain.id);
+    });
 
-        const referredByUserId = toNumber(
-          referredData.referredByUserId ?? referredData.referred_by_user_id,
-          0,
-        );
-
-        const referrerData = referrerMap.get(referredByUserId) ?? null;
-
-        const membership = await Membership.findOne({
+    const memberships = referredUserIds.length > 0
+      ? await Membership.findAll({
           where: {
-            userId: referredData.id,
+            userId: {
+              [Op.in]: referredUserIds,
+            },
             paymentStatus: {
               [Op.in]: ["paid", "unpaid"],
             },
@@ -176,83 +170,95 @@ export async function GET() {
             ["createdAt", "DESC"],
             ["id", "DESC"],
           ],
-        });
+        })
+      : [];
 
-        const membershipData = getPlain(membership) as any;
-        const status = getMembershipStatus(membershipData);
+    const membershipMap = new Map<number, any>();
+    memberships.forEach((m) => {
+      const plain = getPlain(m) as any;
+      const uId = Number(plain.userId ?? plain.user_id);
+      if (!membershipMap.has(uId)) {
+        membershipMap.set(uId, plain);
+      }
+    });
 
-        return {
-          id: referredData.id,
-          name: referredData.name ?? "",
-          email: referredData.email ?? "",
-          phone: referredData.phone ?? "",
-          role: referredData.role ?? "customer",
-          joinedAt: serializeDate(
-            referredData.createdAt ?? referredData.created_at,
-          ),
+    const details = referredUsers.map((referredUser) => {
+      const referredData = getPlain(referredUser) as any;
+      const referredByUserId = toNumber(
+        referredData.referredByUserId ?? referredData.referred_by_user_id,
+        0,
+      );
 
-          usedReferralCode:
-            referredData.referredByCode ??
-            referredData.referred_by_code ??
-            null,
+      const referrerData = referrerMap.get(referredByUserId) ?? null;
+      const membershipData = membershipMap.get(Number(referredData.id)) ?? null;
+      const status = getMembershipStatus(membershipData);
 
-          referredByUserId,
-
-          referrer: referrerData
-            ? {
-                id: referrerData.id,
-                name: referrerData.name ?? "",
-                email: referrerData.email ?? "",
-                phone: referrerData.phone ?? "",
-                role: referrerData.role ?? "customer",
-                referralCode:
-                  referrerData.referralCode ??
-                  referrerData.referral_code ??
-                  "",
-              }
-            : null,
-
-          membership: membershipData
-            ? {
-                id: membershipData.id,
-                packageName:
-                  membershipData.packageName ??
-                  membershipData.package_name ??
-                  "Membership",
-                packagePrice: Number(
-                  membershipData.packagePrice ??
-                    membershipData.package_price ??
-                    0,
-                ),
-                paymentStatus:
-                  membershipData.paymentStatus ??
-                  membershipData.payment_status ??
-                  null,
-                memberStatus:
-                  membershipData.memberStatus ??
-                  membershipData.member_status ??
-                  null,
-                salesStatus:
-                  membershipData.salesStatus ??
-                  membershipData.sales_status ??
-                  null,
-                paidAt: serializeDate(
-                  membershipData.paidAt ?? membershipData.paid_at,
-                ),
-                startedAt: serializeDate(
-                  membershipData.startedAt ?? membershipData.started_at,
-                ),
-                expiredAt: serializeDate(
-                  membershipData.expiredAt ?? membershipData.expired_at,
-                ),
-              }
-            : null,
-
-          status,
-          statusLabel: getStatusLabel(status),
-        };
-      }),
-    );
+      return {
+        id: referredData.id,
+        name: referredData.name ?? "",
+        email: referredData.email ?? "",
+        phone: referredData.phone ?? "",
+        role: referredData.role ?? "customer",
+        joinedAt: serializeDate(
+          referredData.createdAt ?? referredData.created_at,
+        ),
+        usedReferralCode:
+          referredData.referredByCode ??
+          referredData.referred_by_code ??
+          null,
+        referredByUserId,
+        referrer: referrerData
+          ? {
+              id: referrerData.id,
+              name: referrerData.name ?? "",
+              email: referrerData.email ?? "",
+              phone: referrerData.phone ?? "",
+              role: referrerData.role ?? "customer",
+              referralCode:
+                referrerData.referralCode ??
+                referrerData.referral_code ??
+                "",
+            }
+          : null,
+        membership: membershipData
+          ? {
+              id: membershipData.id,
+              packageName:
+                membershipData.packageName ??
+                membershipData.package_name ??
+                "Membership",
+              packagePrice: Number(
+                membershipData.packagePrice ??
+                  membershipData.package_price ??
+                  0,
+              ),
+              paymentStatus:
+                membershipData.paymentStatus ??
+                membershipData.payment_status ??
+                null,
+              memberStatus:
+                membershipData.memberStatus ??
+                membershipData.member_status ??
+                null,
+              salesStatus:
+                membershipData.salesStatus ??
+                membershipData.sales_status ??
+                null,
+              paidAt: serializeDate(
+                membershipData.paidAt ?? membershipData.paid_at,
+              ),
+              startedAt: serializeDate(
+                membershipData.startedAt ?? membershipData.started_at,
+              ),
+              expiredAt: serializeDate(
+                membershipData.expiredAt ?? membershipData.expired_at,
+              ),
+            }
+          : null,
+        status,
+        statusLabel: getStatusLabel(status),
+      };
+    });
 
     const rankingMap = new Map<number, any>();
 
@@ -269,7 +275,6 @@ export async function GET() {
           phone: item.referrer.phone,
           role: item.referrer.role,
           referralCode: item.referrer.referralCode,
-
           total: 0,
           active: 0,
           pending: 0,
@@ -281,7 +286,6 @@ export async function GET() {
       }
 
       const rank = rankingMap.get(referrerId);
-
       rank.total += 1;
 
       if (item.status === "active") {
@@ -315,9 +319,7 @@ export async function GET() {
 
     const totalReferrals = details.length;
     const totalActive = details.filter((item) => item.status === "active").length;
-    const totalPending = details.filter(
-      (item) => item.status === "pending",
-    ).length;
+    const totalPending = details.filter((item) => item.status === "pending").length;
     const totalFailed = details.filter((item) => item.status === "failed").length;
 
     const chart = ranking.slice(0, 10).map((item) => ({

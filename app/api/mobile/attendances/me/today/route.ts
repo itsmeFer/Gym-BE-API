@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { Attendance } from "@/database/models";
 import { errorResponse, successResponse } from "@/lib/response";
+import { getTokenFromRequest, verifyToken } from "@/lib/auth";
 
 function getJakartaDateString() {
   return new Intl.DateTimeFormat("en-CA", {
@@ -24,7 +25,6 @@ function timeToSeconds(value: string | null | undefined) {
   if (!value) return null;
 
   const cleanTime = String(value).trim();
-
   const match = cleanTime.match(/^(\d{2}):(\d{2})(?::(\d{2}))?$/);
 
   if (!match) return null;
@@ -62,8 +62,6 @@ function calculateWorkDurationSeconds(
   }
 
   let diff = end - start;
-
-  // Aman kalau nanti ada shift lewat tengah malam
   if (diff < 0) {
     diff += 24 * 60 * 60;
   }
@@ -73,7 +71,6 @@ function calculateWorkDurationSeconds(
 
 function formatWorkDuration(totalSeconds: number) {
   const safeSeconds = Math.max(Number(totalSeconds) || 0, 0);
-
   if (safeSeconds <= 0) return "-";
 
   const hours = Math.floor(safeSeconds / 3600);
@@ -83,15 +80,12 @@ function formatWorkDuration(totalSeconds: number) {
   if (hours > 0 && minutes > 0) {
     return `${hours} jam ${minutes} menit`;
   }
-
   if (hours > 0) {
     return `${hours} jam`;
   }
-
   if (minutes > 0 && seconds > 0) {
     return `${minutes} menit ${seconds} detik`;
   }
-
   if (minutes > 0) {
     return `${minutes} menit`;
   }
@@ -126,24 +120,48 @@ function serializeAttendance(attendance: any) {
 
 export async function GET(request: NextRequest) {
   try {
-    const searchParams = request.nextUrl.searchParams;
+    const token = getTokenFromRequest(request);
+    let authenticatedUserId: number | null = null;
+    let requesterRole = "";
 
-    const userId = toNumberOrNull(searchParams.get("userId"));
-    const role = String(searchParams.get("role") ?? "").trim().toLowerCase();
+    if (token) {
+      const decoded = verifyToken(token);
+      if (decoded && decoded.id) {
+        authenticatedUserId = decoded.id;
+        requesterRole = String(decoded.role ?? "").toLowerCase();
+      }
+    }
+
+    const searchParams = request.nextUrl.searchParams;
+    const queryUserId = toNumberOrNull(searchParams.get("userId"));
+    const queryRole = String(searchParams.get("role") ?? "").trim().toLowerCase();
     const date = searchParams.get("date") || getJakartaDateString();
 
-    if (!userId && !role) {
-      return errorResponse("User atau role wajib dikirim", 400);
+    const allowedAdminRoles = ["admin", "owner", "direktur", "manager"];
+    let finalUserId: number | null = authenticatedUserId;
+
+    if (queryUserId) {
+      if (authenticatedUserId && queryUserId !== authenticatedUserId) {
+        if (allowedAdminRoles.includes(requesterRole)) {
+          finalUserId = queryUserId;
+        }
+      } else if (!authenticatedUserId) {
+        finalUserId = queryUserId;
+      }
+    }
+
+    if (!finalUserId && !queryRole) {
+      return errorResponse("User atau role wajib disertakan", 400);
     }
 
     const where: Record<string, unknown> = {
       attendanceDate: date,
     };
 
-    if (userId) {
-      where.userId = userId;
-    } else if (role) {
-      where.role = role;
+    if (finalUserId) {
+      where.userId = finalUserId;
+    } else if (queryRole) {
+      where.role = queryRole;
     }
 
     const attendance = await Attendance.findOne({

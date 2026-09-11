@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { User } from "@/database/models";
 import { successResponse, errorResponse } from "@/lib/response";
+import { getTokenFromRequest, verifyToken } from "@/lib/auth";
 
 function toNumberOrNull(value: unknown) {
   if (value === undefined || value === null || value === "") {
@@ -13,24 +14,31 @@ function toNumberOrNull(value: unknown) {
 
 export async function GET(request: NextRequest) {
   try {
-    const searchParams = request.nextUrl.searchParams;
-
-    /**
-     * Sementara ambil userId dari query/header.
-     * Nanti kalau JWT/session sudah siap, ganti ini dengan user dari token login.
-     *
-     * Contoh:
-     * /api/admin/users/me?userId=2
-     */
-    const userId =
-      toNumberOrNull(searchParams.get("userId")) ??
-      toNumberOrNull(request.headers.get("x-user-id"));
-
-    if (!userId) {
-      return errorResponse("User login tidak valid", 401);
+    const token = getTokenFromRequest(request);
+    if (!token) {
+      return errorResponse("Unauthorized: Sesi tidak ditemukan", 401);
     }
 
-    const user = await User.findByPk(userId, {
+    const decoded = verifyToken(token);
+    if (!decoded || !decoded.id) {
+      return errorResponse("Unauthorized: Token tidak valid atau kedaluwarsa", 401);
+    }
+
+    const allowedRoles = ["admin", "owner", "direktur", "manager", "kasir"];
+    const requesterRole = String(decoded.role ?? "").toLowerCase();
+
+    const searchParams = request.nextUrl.searchParams;
+    const requestedUserId = toNumberOrNull(searchParams.get("userId"));
+
+    let targetUserId = decoded.id;
+    if (requestedUserId && requestedUserId !== decoded.id) {
+      if (!allowedRoles.includes(requesterRole)) {
+        return errorResponse("Forbidden: Akses ditolak", 403);
+      }
+      targetUserId = requestedUserId;
+    }
+
+    const user = await User.findByPk(targetUserId, {
       attributes: [
         "id",
         "name",
@@ -58,14 +66,8 @@ export async function GET(request: NextRequest) {
         email: userData.email,
         phone: userData.phone,
         role: String(userData.role ?? "").toLowerCase(),
-
-        /**
-         * points = poin aktual sekarang.
-         * maxPoints = poin awal/maksimal untuk angka kanan.
-         */
         points: Number(userData.points ?? 0),
         maxPoints: Number(userData.maxPoints ?? 100),
-
         isActive: Boolean(userData.isActive),
         createdAt: userData.createdAt,
       },
