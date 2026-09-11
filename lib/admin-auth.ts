@@ -46,10 +46,13 @@ export async function getAdminFromRequest(request: Request) {
     };
   }
 
-  if (userData.role !== "admin") {
+  const role = String(userData.role ?? "").toLowerCase();
+  const allowedRoles = ["admin", "owner", "direktur", "manager", "superadmin", "it"];
+
+  if (!allowedRoles.includes(role)) {
     return {
       success: false,
-      message: "Akses hanya untuk admin",
+      message: "Akses hanya untuk admin dan manajemen",
       user: null,
     };
   }

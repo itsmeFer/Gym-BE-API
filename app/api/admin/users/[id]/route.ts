@@ -4,6 +4,7 @@ import { Op } from "sequelize";
 
 import { User } from "@/database/models";
 import { errorResponse, successResponse } from "@/lib/response";
+import { getAdminFromRequest } from "@/lib/admin-auth";
 
 const STAFF_ROLES = [
   "admin",
@@ -13,6 +14,7 @@ const STAFF_ROLES = [
   "karyawan",
   "trainer",
   "sales",
+  "kasir",
 ] as const;
 
 type StaffRole = (typeof STAFF_ROLES)[number];
@@ -99,6 +101,11 @@ export async function GET(
   context: { params: Promise<{ id: string }> },
 ) {
   try {
+    const auth = await getAdminFromRequest(request);
+    if (!auth.success) {
+      return errorResponse(auth.message, 403);
+    }
+
     const { id } = await context.params;
 
     const user = await User.findByPk(id);
@@ -122,6 +129,11 @@ export async function PUT(
   context: { params: Promise<{ id: string }> },
 ) {
   try {
+    const auth = await getAdminFromRequest(request);
+    if (!auth.success) {
+      return errorResponse(auth.message, 403);
+    }
+
     const { id } = await context.params;
     const body = await request.json();
 
@@ -180,7 +192,7 @@ export async function PUT(
 
     if (body.role !== undefined && !role) {
       return errorResponse(
-        "Role hanya boleh admin, owner, direktur, manager, karyawan, trainer, atau sales",
+        "Role hanya boleh admin, owner, direktur, manager, karyawan, trainer, sales, atau kasir",
         400,
       );
     }
@@ -246,12 +258,35 @@ export async function DELETE(
   context: { params: Promise<{ id: string }> },
 ) {
   try {
+    const auth = await getAdminFromRequest(request);
+    if (!auth.success || !auth.user) {
+      return errorResponse(auth.message || "Akses tidak diizinkan", 403);
+    }
+
     const { id } = await context.params;
+    const authUser = auth.user.get({ plain: true }) as { id: number; role?: string };
+
+    if (Number(authUser.id) === Number(id)) {
+      return errorResponse(
+        "Tidak dapat menghapus akun Anda sendiri yang sedang aktif digunakan",
+        400,
+      );
+    }
 
     const user = await User.findByPk(id);
 
     if (!user) {
       return errorResponse("Akun tidak ditemukan", 404);
+    }
+
+    const targetRole = String(user.get("role") ?? "").toLowerCase();
+    const currentRole = String(authUser.role ?? "").toLowerCase();
+
+    if (targetRole === "owner" && currentRole !== "owner") {
+      return errorResponse(
+        "Hanya akun owner yang berhak mengelola atau menghapus sesama owner",
+        403,
+      );
     }
 
     await user.destroy();

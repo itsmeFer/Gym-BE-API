@@ -8,6 +8,7 @@ import {
     User,
 } from "@/database/models";
 import { errorResponse, successResponse } from "@/lib/response";
+import { getTokenFromRequest, verifyToken } from "@/lib/auth";
 
 type PlainRecord = Record<string, any>;
 
@@ -574,6 +575,25 @@ function buildActivities(params: {
 
 export async function GET(request: NextRequest) {
     try {
+        const token = getTokenFromRequest(request);
+        if (!token) {
+            return errorResponse("Token autentikasi tidak ditemukan", 401);
+        }
+
+        const payload = verifyToken(token);
+        if (!payload) {
+            return errorResponse("Sesi login telah kedaluwarsa atau tidak valid", 401);
+        }
+
+        const userRole = String(payload.role ?? "").toLowerCase();
+        const ALLOWED_ROLES = ["admin", "owner", "direktur", "manager", "superadmin", "it"];
+        if (!ALLOWED_ROLES.includes(userRole)) {
+            return errorResponse(
+                "Akses ditolak: Hanya admin dan manajemen yang berhak mengakses laporan",
+                403,
+            );
+        }
+
         const range = getDateRange(request);
 
         const [membershipsRaw, attendancesRaw, usersRaw, plansRaw] =

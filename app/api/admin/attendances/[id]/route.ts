@@ -1,6 +1,11 @@
 import { NextRequest } from "next/server";
 import { Attendance } from "@/database/models";
 import { errorResponse, successResponse } from "@/lib/response";
+import { getTokenFromRequest, verifyToken } from "@/lib/auth";
+
+export const runtime = "nodejs";
+
+const ALLOWED_ADMIN_ROLES = ["admin", "owner", "direktur", "manager", "superadmin", "it"];
 
 function toNumberOrNull(value: unknown) {
   if (value === undefined || value === null || value === "") {
@@ -161,6 +166,17 @@ export async function GET(
   context: { params: Promise<{ id: string }> }
 ) {
   try {
+    const token = getTokenFromRequest(request);
+    const userPayload = token ? verifyToken(token) : null;
+
+    if (!userPayload) {
+      return errorResponse("Autentikasi gagal. Silakan login kembali.", 401);
+    }
+
+    if (!ALLOWED_ADMIN_ROLES.includes(userPayload.role.toLowerCase())) {
+      return errorResponse("Akses ditolak: Hanya admin yang berhak melihat detail absensi", 403);
+    }
+
     const { id } = await context.params;
 
     if (isProtectedDynamicId(id)) {
@@ -197,6 +213,17 @@ export async function PUT(
   context: { params: Promise<{ id: string }> }
 ) {
   try {
+    const token = getTokenFromRequest(request);
+    const userPayload = token ? verifyToken(token) : null;
+
+    if (!userPayload) {
+      return errorResponse("Autentikasi gagal. Silakan login kembali.", 401);
+    }
+
+    if (!ALLOWED_ADMIN_ROLES.includes(userPayload.role.toLowerCase())) {
+      return errorResponse("Akses ditolak: Hanya admin yang berhak mengubah data absensi", 403);
+    }
+
     const { id } = await context.params;
 
     if (isProtectedDynamicId(id)) {
@@ -339,6 +366,17 @@ export async function DELETE(
   context: { params: Promise<{ id: string }> }
 ) {
   try {
+    const token = getTokenFromRequest(request);
+    const userPayload = token ? verifyToken(token) : null;
+
+    if (!userPayload) {
+      return errorResponse("Autentikasi gagal. Silakan login kembali.", 401);
+    }
+
+    if (!ALLOWED_ADMIN_ROLES.includes(userPayload.role.toLowerCase())) {
+      return errorResponse("Akses ditolak: Hanya admin yang berhak menghapus data absensi", 403);
+    }
+
     const { id } = await context.params;
 
     if (isProtectedDynamicId(id)) {

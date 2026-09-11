@@ -2,6 +2,11 @@ import { NextRequest } from "next/server";
 import { Op } from "sequelize";
 import { Attendance } from "@/database/models";
 import { errorResponse, successResponse } from "@/lib/response";
+import { getTokenFromRequest, verifyToken } from "@/lib/auth";
+
+export const runtime = "nodejs";
+
+const ALLOWED_ADMIN_ROLES = ["admin", "owner", "direktur", "manager", "superadmin", "it"];
 
 function toNumberOrNull(value: unknown) {
   if (value === undefined || value === null || value === "") {
@@ -176,6 +181,17 @@ function makeSummary(attendances: any[]) {
 
 export async function GET(request: NextRequest) {
   try {
+    const token = getTokenFromRequest(request);
+    const userPayload = token ? verifyToken(token) : null;
+
+    if (!userPayload) {
+      return errorResponse("Autentikasi gagal. Silakan login kembali.", 401);
+    }
+
+    if (!ALLOWED_ADMIN_ROLES.includes(userPayload.role.toLowerCase())) {
+      return errorResponse("Akses ditolak: Hanya admin yang berhak melihat data absensi", 403);
+    }
+
     const searchParams = request.nextUrl.searchParams;
 
     const userId = toNumberOrNull(searchParams.get("userId"));
@@ -238,6 +254,17 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    const token = getTokenFromRequest(request);
+    const userPayload = token ? verifyToken(token) : null;
+
+    if (!userPayload) {
+      return errorResponse("Autentikasi gagal. Silakan login kembali.", 401);
+    }
+
+    if (!ALLOWED_ADMIN_ROLES.includes(userPayload.role.toLowerCase())) {
+      return errorResponse("Akses ditolak: Hanya admin yang berhak membuat absensi manual", 403);
+    }
+
     const body = await request.json();
 
     const userId = toNumberOrNull(body.userId ?? body.user_id);
