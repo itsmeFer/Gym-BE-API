@@ -1,6 +1,9 @@
 import { NextRequest } from "next/server";
-import { MembershipPlan } from "@/database/models";
+import { MembershipPlan, Membership } from "@/database/models";
 import { errorResponse, successResponse } from "@/lib/response";
+import { getTokenFromRequest, verifyToken } from "@/lib/auth";
+
+export const runtime = "nodejs";
 
 const CUSTOMER_CATEGORIES = ["prima_grup", "non_prima_grup"] as const;
 
@@ -36,6 +39,18 @@ export async function GET(
   context: { params: Promise<{ id: string }> }
 ) {
   try {
+    const token = getTokenFromRequest(request);
+    const userPayload = token ? verifyToken(token) : null;
+
+    if (!userPayload) {
+      return errorResponse("Autentikasi gagal. Silakan login kembali.", 401);
+    }
+
+    const allowedRoles = ["admin", "kasir", "owner", "direktur", "manager"];
+    if (!allowedRoles.includes(userPayload.role.toLowerCase())) {
+      return errorResponse("Akses ditolak: Anda tidak memiliki akses ke detail paket membership", 403);
+    }
+
     const { id } = await context.params;
 
     const plan = await MembershipPlan.findByPk(id);
@@ -59,6 +74,18 @@ export async function PUT(
   context: { params: Promise<{ id: string }> }
 ) {
   try {
+    const token = getTokenFromRequest(request);
+    const userPayload = token ? verifyToken(token) : null;
+
+    if (!userPayload) {
+      return errorResponse("Autentikasi gagal. Silakan login kembali.", 401);
+    }
+
+    const allowedRoles = ["admin", "manager", "owner", "direktur"];
+    if (!allowedRoles.includes(userPayload.role.toLowerCase())) {
+      return errorResponse("Akses ditolak: Hanya admin atau manager yang boleh mengubah paket membership", 403);
+    }
+
     const { id } = await context.params;
     const body = await request.json();
 
@@ -197,12 +224,32 @@ export async function DELETE(
   context: { params: Promise<{ id: string }> }
 ) {
   try {
+    const token = getTokenFromRequest(request);
+    const userPayload = token ? verifyToken(token) : null;
+
+    if (!userPayload) {
+      return errorResponse("Autentikasi gagal. Silakan login kembali.", 401);
+    }
+
+    const allowedRoles = ["admin", "manager", "owner", "direktur"];
+    if (!allowedRoles.includes(userPayload.role.toLowerCase())) {
+      return errorResponse("Akses ditolak: Hanya admin atau manager yang boleh menghapus paket membership", 403);
+    }
+
     const { id } = await context.params;
 
     const plan = await MembershipPlan.findByPk(id);
 
     if (!plan) {
       return errorResponse("Membership plan tidak ditemukan", 404);
+    }
+
+    const inUseCount = await Membership.count({ where: { planId: id } });
+    if (inUseCount > 0) {
+      return errorResponse(
+        "Paket ini tidak dapat dihapus permanen karena masih terikat dengan data keanggotaan member. Silakan nonaktifkan status paket (Nonaktif) agar tidak bisa dipilih untuk pendaftaran baru.",
+        400
+      );
     }
 
     await plan.destroy();

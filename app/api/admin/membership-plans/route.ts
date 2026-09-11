@@ -1,6 +1,9 @@
 import { NextRequest } from "next/server";
 import { MembershipPlan } from "@/database/models";
 import { errorResponse, successResponse } from "@/lib/response";
+import { getTokenFromRequest, verifyToken } from "@/lib/auth";
+
+export const runtime = "nodejs";
 
 const CUSTOMER_CATEGORIES = ["prima_grup", "non_prima_grup"] as const;
 
@@ -35,8 +38,20 @@ function normalizeBenefits(value: unknown): string[] {
     .filter(Boolean);
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    const token = getTokenFromRequest(request);
+    const userPayload = token ? verifyToken(token) : null;
+
+    if (!userPayload) {
+      return errorResponse("Autentikasi gagal. Silakan login kembali.", 401);
+    }
+
+    const allowedRoles = ["admin", "kasir", "owner", "direktur", "manager"];
+    if (!allowedRoles.includes(userPayload.role.toLowerCase())) {
+      return errorResponse("Akses ditolak: Anda tidak memiliki akses ke paket membership", 403);
+    }
+
     const plans = await MembershipPlan.findAll({
       order: [["createdAt", "DESC"]],
     });
@@ -53,6 +68,18 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
+    const token = getTokenFromRequest(request);
+    const userPayload = token ? verifyToken(token) : null;
+
+    if (!userPayload) {
+      return errorResponse("Autentikasi gagal. Silakan login kembali.", 401);
+    }
+
+    const allowedRoles = ["admin", "manager", "owner", "direktur"];
+    if (!allowedRoles.includes(userPayload.role.toLowerCase())) {
+      return errorResponse("Akses ditolak: Hanya admin atau manager yang boleh membuat paket membership", 403);
+    }
+
     const body = await request.json();
 
     const programName = String(body.programName ?? "").trim();
