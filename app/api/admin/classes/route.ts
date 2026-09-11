@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { Op } from "sequelize";
 import { MembershipPlan, MembershipPlanSchedule, User } from "@/database/models";
 import { errorResponse, successResponse } from "@/lib/response";
+import { getTokenFromRequest, verifyToken } from "@/lib/auth";
 
 import {
   initializeClassesFromPlans,
@@ -9,8 +10,15 @@ import {
   computeClassStatus,
 } from "@/lib/classes-store";
 
-export async function GET() {
+export const runtime = "nodejs";
+
+export async function GET(request: NextRequest) {
   try {
+    const token = getTokenFromRequest(request);
+    if (!token || !verifyToken(token)) {
+      return errorResponse("Autentikasi gagal. Silakan login kembali.", 401);
+    }
+
     const classes = await initializeClassesFromPlans();
 
     const plansRaw = await MembershipPlan.findAll({
@@ -83,6 +91,18 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
+    const token = getTokenFromRequest(request);
+    const userPayload = token ? verifyToken(token) : null;
+
+    if (!userPayload) {
+      return errorResponse("Autentikasi gagal. Silakan login kembali.", 401);
+    }
+
+    const allowedRoles = ["admin", "owner", "direktur", "manager"];
+    if (!allowedRoles.includes(userPayload.role.toLowerCase())) {
+      return errorResponse("Akses ditolak: Hanya admin dan manager yang berhak mengelola kelas", 403);
+    }
+
     const body = await request.json();
     const {
       id,
@@ -125,6 +145,7 @@ export async function POST(request: NextRequest) {
           sessionLabel,
           room: room || existing.room,
           quota: quota !== undefined ? Number(quota) : existing.quota,
+          isActive: true,
         });
 
         const updatedClasses = await initializeClassesFromPlans();
@@ -136,7 +157,6 @@ export async function POST(request: NextRequest) {
         });
       }
     }
-
 
     // Create new record in membership_plan_schedules
     const newSchedule = await MembershipPlanSchedule.create({
@@ -169,21 +189,35 @@ export async function POST(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
+    const token = getTokenFromRequest(request);
+    const userPayload = token ? verifyToken(token) : null;
+
+    if (!userPayload) {
+      return errorResponse("Autentikasi gagal. Silakan login kembali.", 401);
+    }
+
+    const allowedRoles = ["admin", "owner", "direktur", "manager"];
+    if (!allowedRoles.includes(userPayload.role.toLowerCase())) {
+      return errorResponse("Akses ditolak: Hanya admin dan manager yang berhak menghapus kelas", 403);
+    }
+
     const id = request.nextUrl.searchParams.get("id");
     if (!id) {
       return errorResponse("Class ID wajib diisi", 400);
     }
 
     if (!isNaN(Number(id))) {
-      await MembershipPlanSchedule.destroy({
-        where: { id: Number(id) },
-      });
+      const schedule = await MembershipPlanSchedule.findByPk(Number(id));
+      if (schedule) {
+        // Soft delete agar histori kehadiran member tidak putus
+        await schedule.update({ isActive: false });
+      }
     }
 
     await initializeClassesFromPlans();
 
     return successResponse({
-      message: "Kelas shift berhasil dihapus dari database PostgreSQL",
+      message: "Kelas shift berhasil dinonaktifkan dari database PostgreSQL",
       data: { id },
     });
   } catch (error) {

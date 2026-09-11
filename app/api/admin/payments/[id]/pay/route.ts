@@ -4,6 +4,7 @@ import { Membership, MembershipPlan, User } from "@/database/models";
 import { errorResponse, successResponse } from "@/lib/response";
 import { buildMembershipAgreementPdf } from "@/lib/pdf/membershipAgreementPdf";
 import { sendMembershipAgreementEmail } from "@/lib/mail/sendMembershipAgreementEmail";
+import { getTokenFromRequest, verifyToken } from "@/lib/auth";
 
 export const runtime = "nodejs";
 
@@ -166,9 +167,9 @@ export async function POST(
 
     const adminUserId = toNumber(
       body.adminUserId ??
-        body.admin_user_id ??
-        body.processedByUserId ??
-        body.processed_by_user_id,
+      body.admin_user_id ??
+      body.processedByUserId ??
+      body.processed_by_user_id,
       0
     );
 
@@ -183,31 +184,27 @@ export async function POST(
     const adminNote = body.adminNote ?? body.admin_note;
     const cleanAdminNote = adminNote ? String(adminNote).trim() : null;
 
-    const paymentProofPhoto = String(
+    const paymentProofPhotoInput = String(
       body.paymentProofPhoto ?? body.payment_proof_photo ?? ""
     ).trim();
 
-    if (!adminUserId) {
-      return errorResponse("Admin user wajib dikirim", 400);
+    // Verifikasi identitas admin / staf dari token JWT
+    const token = getTokenFromRequest(request);
+    let resolvedAdminId = adminUserId;
+
+    if (token) {
+      const payload = verifyToken(token);
+      if (payload?.id) {
+        resolvedAdminId = payload.id;
+      }
+    }
+
+    if (!resolvedAdminId) {
+      return errorResponse("Admin user wajib dikirim atau terautentikasi", 400);
     }
 
     if (!paidAmount || paidAmount <= 0) {
       return errorResponse("Nominal pembayaran wajib lebih dari 0", 400);
-    }
-
-    if (!paymentProofPhoto) {
-      return errorResponse("Foto bukti pembayaran wajib dilampirkan", 400);
-    }
-
-    if (
-      !paymentProofPhoto.startsWith("[") &&
-      !paymentProofPhoto.startsWith("data:image/") &&
-      !paymentProofPhoto.startsWith("http://") &&
-      !paymentProofPhoto.startsWith("https://") &&
-      !paymentProofPhoto.startsWith("/uploads/") &&
-      !paymentProofPhoto.startsWith("uploads/")
-    ) {
-      return errorResponse("Format foto bukti pembayaran tidak valid", 400);
     }
 
     const allowedPaymentMethods = [
@@ -227,16 +224,20 @@ export async function POST(
       );
     }
 
-    const admin = await User.findByPk(adminUserId);
+    const admin = await User.findByPk(resolvedAdminId);
 
     if (!admin) {
-      return errorResponse("Admin tidak ditemukan", 404);
+      return errorResponse("Admin/Kasir tidak ditemukan", 404);
     }
 
     const adminRole = String(admin.get("role") ?? "").toLowerCase();
+    const allowedRoles = ["admin", "owner", "direktur", "manager", "kasir"];
 
-    if (adminRole !== "admin" && adminRole !== "owner" && adminRole !== "direktur") {
-      return errorResponse("User yang memproses pembayaran harus role admin, owner, atau direktur", 403);
+    if (!allowedRoles.includes(adminRole)) {
+      return errorResponse(
+        "User yang memproses pembayaran harus role admin, owner, direktur, manager, atau kasir",
+        403
+      );
     }
 
     const membership = await Membership.findByPk(paymentId);
@@ -251,6 +252,28 @@ export async function POST(
 
     if (membership.memberStatus === "active") {
       return errorResponse("Membership ini sudah aktif", 400);
+    }
+
+    // Admin tidak perlu upload bukti bayar lagi jika sudah diupload oleh sales
+    const existingProof = String(membership.paymentProofPhoto ?? "").trim();
+    const finalProofPhoto = paymentProofPhotoInput || existingProof;
+
+    if (!finalProofPhoto) {
+      return errorResponse(
+        "Foto bukti pembayaran belum dilampirkan oleh sales maupun admin",
+        400
+      );
+    }
+
+    if (
+      !finalProofPhoto.startsWith("[") &&
+      !finalProofPhoto.startsWith("data:image/") &&
+      !finalProofPhoto.startsWith("http://") &&
+      !finalProofPhoto.startsWith("https://") &&
+      !finalProofPhoto.startsWith("/uploads/") &&
+      !finalProofPhoto.startsWith("uploads/")
+    ) {
+      return errorResponse("Format foto bukti pembayaran tidak valid", 400);
     }
 
     const memberUser = await User.findByPk(membership.userId);
@@ -299,11 +322,10 @@ export async function POST(
 
     const oldNotes = membership.notes ? String(membership.notes) : "";
 
-    const activePeriodNote = `Masa aktif: ${durationDays} hari${
-      freeMembershipDays > 0
+    const activePeriodNote = `Masa aktif: ${durationDays} hari${freeMembershipDays > 0
         ? ` + free membership ${freeMembershipDays} hari`
         : ""
-    } = total ${totalActiveDays} hari`;
+      } = total ${totalActiveDays} hari`;
 
     const mergedNote = cleanAdminNote
       ? `Catatan admin: ${cleanAdminNote}\n${activePeriodNote}`
@@ -321,7 +343,7 @@ export async function POST(
       paidAmount,
       paidAt: paidAt,
 
-      paymentProofPhoto,
+      paymentProofPhoto: finalProofPhoto,
 
       memberStatus: "active",
       salesStatus: "completed",
@@ -329,7 +351,7 @@ export async function POST(
       startedAt,
       expiredAt,
 
-      processedByUserId: adminUserId,
+      processedByUserId: resolvedAdminId,
 
       notes: newNotes,
     });
@@ -375,22 +397,22 @@ export async function POST(
         },
         plan: freshPlan
           ? {
-              name: freshPlan?.name,
-              programName: freshPlan?.programName ?? freshPlan?.program_name,
-              packageCode: freshPlan?.packageCode ?? freshPlan?.package_code,
-              durationDays: freshPlan?.durationDays ?? freshPlan?.duration_days,
-              personalTrainerSessions:
-                freshPlan?.personalTrainerSessions ??
-                freshPlan?.personal_trainer_sessions,
-              pilatesSessions:
-                freshPlan?.pilatesSessions ?? freshPlan?.pilates_sessions,
-              freeMembershipDays:
-                freshPlan?.freeMembershipDays ??
-                freshPlan?.free_membership_days,
-              benefits: Array.isArray(freshPlan?.benefits)
-                ? freshPlan.benefits
-                : [],
-            }
+            name: freshPlan?.name,
+            programName: freshPlan?.programName ?? freshPlan?.program_name,
+            packageCode: freshPlan?.packageCode ?? freshPlan?.package_code,
+            durationDays: freshPlan?.durationDays ?? freshPlan?.duration_days,
+            personalTrainerSessions:
+              freshPlan?.personalTrainerSessions ??
+              freshPlan?.personal_trainer_sessions,
+            pilatesSessions:
+              freshPlan?.pilatesSessions ?? freshPlan?.pilates_sessions,
+            freeMembershipDays:
+              freshPlan?.freeMembershipDays ??
+              freshPlan?.free_membership_days,
+            benefits: Array.isArray(freshPlan?.benefits)
+              ? freshPlan.benefits
+              : [],
+          }
           : null,
       });
 

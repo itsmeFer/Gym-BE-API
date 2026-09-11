@@ -1,7 +1,11 @@
+import { NextRequest } from "next/server";
 import { Op } from "sequelize";
 
 import { Membership, MembershipPlan, User } from "@/database/models";
 import { errorResponse, successResponse } from "@/lib/response";
+import { getTokenFromRequest, verifyToken } from "@/lib/auth";
+
+export const runtime = "nodejs";
 
 function uniqueNumbers(values: Array<number | null | undefined>) {
   return Array.from(
@@ -120,8 +124,20 @@ function serializeHistory(
  * /api/admin/payment-history?memberStatus=revoked
  * /api/admin/payment-history?memberStatus=expired
  */
-export async function GET(request: Request) {
+export async function GET(request: NextRequest) {
   try {
+    const token = getTokenFromRequest(request);
+    const userPayload = token ? verifyToken(token) : null;
+
+    if (!userPayload) {
+      return errorResponse("Autentikasi gagal. Silakan login kembali.", 401);
+    }
+
+    const allowedRoles = ["admin", "kasir", "owner", "direktur", "manager"];
+    if (!allowedRoles.includes(userPayload.role.toLowerCase())) {
+      return errorResponse("Akses ditolak: Anda tidak memiliki akses ke riwayat pembayaran", 403);
+    }
+
     const url = new URL(request.url);
 
     const memberStatus = String(url.searchParams.get("memberStatus") ?? "")

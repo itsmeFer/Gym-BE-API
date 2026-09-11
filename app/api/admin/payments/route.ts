@@ -1,5 +1,9 @@
+import { NextRequest } from "next/server";
 import { Membership, MembershipPlan, User } from "@/database/models";
 import { errorResponse, successResponse } from "@/lib/response";
+import { getTokenFromRequest, verifyToken } from "@/lib/auth";
+
+export const runtime = "nodejs";
 
 function serializePayment(membership: any) {
   const data = membership?.get ? membership.get({ plain: true }) : membership;
@@ -42,8 +46,20 @@ function serializePayment(membership: any) {
  *
  * Ambil data pembayaran yang menunggu diproses admin.
  */
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    const token = getTokenFromRequest(request);
+    const userPayload = token ? verifyToken(token) : null;
+
+    if (!userPayload) {
+      return errorResponse("Autentikasi gagal. Silakan login kembali.", 401);
+    }
+
+    const allowedRoles = ["admin", "kasir", "owner", "direktur", "manager"];
+    if (!allowedRoles.includes(userPayload.role.toLowerCase())) {
+      return errorResponse("Akses ditolak: Anda tidak memiliki akses ke antrean pembayaran", 403);
+    }
+
     const payments = await Membership.findAll({
       where: {
         salesStatus: "waiting_payment",

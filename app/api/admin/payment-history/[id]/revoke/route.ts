@@ -2,6 +2,9 @@ import { NextRequest } from "next/server";
 
 import { Membership, MembershipPlan, User } from "@/database/models";
 import { errorResponse, successResponse } from "@/lib/response";
+import { getTokenFromRequest, verifyToken } from "@/lib/auth";
+
+export const runtime = "nodejs";
 
 function toNumber(value: unknown, defaultValue = 0) {
   const number = Number(value);
@@ -72,12 +75,6 @@ async function findHistoryWithRelations(id: number) {
  *
  * Cabut membership.
  * Data tidak dihapus.
- *
- * Body:
- * {
- *   "adminUserId": 1,
- *   "revokeReason": "Member minta dibatalkan"
- * }
  */
 export async function POST(
   request: NextRequest,
@@ -91,9 +88,12 @@ export async function POST(
       return errorResponse("ID riwayat tidak valid", 400);
     }
 
+    const token = getTokenFromRequest(request);
+    const userPayload = token ? verifyToken(token) : null;
+
     const body = await request.json();
 
-    const adminUserId = toNumber(
+    const inputAdminUserId = toNumber(
       body.adminUserId ??
         body.admin_user_id ??
         body.cashierUserId ??
@@ -101,28 +101,31 @@ export async function POST(
       0
     );
 
+    const resolvedAdminId = userPayload?.id ?? inputAdminUserId;
+
+    if (!resolvedAdminId) {
+      return errorResponse("Admin user wajib dikirim atau terautentikasi", 400);
+    }
+
     const revokeReason = String(
       body.revokeReason ?? body.revoke_reason ?? ""
     ).trim();
-
-    if (!adminUserId) {
-      return errorResponse("Admin user wajib dikirim", 400);
-    }
 
     if (!revokeReason) {
       return errorResponse("Alasan cabut membership wajib diisi", 400);
     }
 
-    const admin = await User.findByPk(adminUserId);
+    const admin = await User.findByPk(resolvedAdminId);
 
     if (!admin) {
-      return errorResponse("Admin tidak ditemukan", 404);
+      return errorResponse("Admin/Kasir tidak ditemukan", 404);
     }
 
     const adminRole = String(admin.get("role") ?? "").toLowerCase();
+    const allowedRoles = ["admin", "kasir", "owner", "direktur", "manager"];
 
-    if (adminRole !== "admin" && adminRole !== "kasir" && adminRole !== "owner" && adminRole !== "direktur") {
-      return errorResponse("User ini bukan admin/kasir/owner/direktur", 403);
+    if (!allowedRoles.includes(adminRole)) {
+      return errorResponse("User yang memproses harus role admin, kasir, manager, owner, atau direktur", 403);
     }
 
     const history = await Membership.findByPk(historyId);
@@ -145,14 +148,19 @@ export async function POST(
     }
 
     const oldNotes = history.notes ? String(history.notes) : "";
+    const adminName = admin.get("name") || admin.get("email") || "Admin";
+    const timestampStr = new Date().toLocaleString("id-ID", { timeZone: "Asia/Jakarta" });
+    const revocationLog = `[REVOKE ${timestampStr}] Oleh ${adminName} (ID: ${resolvedAdminId}): ${revokeReason}`;
+
     const newNotes = oldNotes
-      ? `${oldNotes}\n\nCabut membership: ${revokeReason}`
-      : `Cabut membership: ${revokeReason}`;
+      ? `${oldNotes}\n\n${revocationLog}`
+      : revocationLog;
 
     await history.update({
       memberStatus: "revoked",
       salesStatus: "completed",
       expiredAt: new Date(),
+      processedByUserId: resolvedAdminId,
       notes: newNotes,
     });
 
