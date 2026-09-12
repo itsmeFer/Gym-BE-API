@@ -2,35 +2,55 @@ import { NextRequest } from "next/server";
 import { Op } from "sequelize";
 import { Attendance, Membership, MembershipPlan } from "@/database/models";
 import { errorResponse, successResponse } from "@/lib/response";
+import { requireAuth } from "@/lib/rbac";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
   try {
-    const { searchParams } = new URL(request.url);
-    const userId = Number(searchParams.get("userId") ?? "");
+    const auth = await requireAuth(request);
+    if (!auth.success) {
+      return errorResponse(auth.message, auth.statusCode);
+    }
 
-    if (!userId) {
-      return errorResponse("User ID tidak ditemukan.", 400);
+    const { searchParams } = new URL(request.url);
+    const queryUserId = Number(searchParams.get("userId") ?? "");
+
+    const requesterRole = String(auth.user.role || "").toLowerCase();
+    const isStaff = ["admin", "owner", "direktur", "manager", "sales"].includes(requesterRole);
+
+    const targetUserId = queryUserId > 0 ? queryUserId : auth.user.id;
+
+    if (targetUserId !== auth.user.id && !isStaff) {
+      return errorResponse(
+        "Akses ditolak: Anda tidak berhak melihat riwayat absensi pengguna lain.",
+        403
+      );
     }
 
     // 1. Get all attendance history for this user
     const attendances = await Attendance.findAll({
-      where: { userId },
+      where: { userId: targetUserId },
       order: [["attendanceDate", "DESC"], ["id", "DESC"]],
     });
-    console.log(`Found ${attendances.length} attendance records for user ${userId}`);
 
     // 2. Get all active memberships and plans
     const activeMemberships = await Membership.findAll({
       where: {
-        userId,
+        userId: targetUserId,
         paymentStatus: "paid",
         memberStatus: {
           [Op.in]: ["active", "pending"],
         },
       },
+      include: [
+        {
+          model: MembershipPlan,
+          as: "plan",
+          required: false,
+        },
+      ],
       order: [
         ["createdAt", "DESC"],
         ["id", "DESC"],
@@ -39,34 +59,35 @@ export async function GET(request: NextRequest) {
 
     const quotas = [];
     for (const mem of activeMemberships) {
-      let qInfo = {
+      const plainMem = mem.get({ plain: true }) as unknown as Record<string, unknown>;
+      const plan = plainMem.plan as Record<string, unknown> | null;
+
+      const qInfo = {
         hasActiveMembership: true,
-        packageName: mem.packageName,
+        packageName: plainMem.packageName as string,
         totalSessions: 0,
         attendedSessions: 0,
         remainingSessions: 0,
-        expiredAt: mem.expiredAt,
+        expiredAt: plainMem.expiredAt as Date | string | null,
       };
 
-      if (mem.planId) {
-        const plan = await MembershipPlan.findByPk(mem.planId);
-        if (plan) {
-          const totalSessions = Number(plan.dataValues.personalTrainerSessions ?? (plan.dataValues as any).personal_trainer_sessions ?? 0) +
-                                Number(plan.dataValues.pilatesSessions ?? (plan.dataValues as any).pilates_sessions ?? 0);
-          qInfo.totalSessions = totalSessions;
+      if (plan) {
+        const totalSessions =
+          Number(plan.personalTrainerSessions ?? plan.personal_trainer_sessions ?? 0) +
+          Number(plan.pilatesSessions ?? plan.pilates_sessions ?? 0);
+        qInfo.totalSessions = totalSessions;
 
-          if (totalSessions > 0) {
-            const attendanceCount = await Attendance.count({
-              where: {
-                userId,
-                createdAt: {
-                  [Op.gte]: mem.startedAt || mem.createdAt,
-                },
+        if (totalSessions > 0) {
+          const attendanceCount = await Attendance.count({
+            where: {
+              userId: targetUserId,
+              createdAt: {
+                [Op.gte]: (plainMem.startedAt || plainMem.createdAt) as Date,
               },
-            });
-            qInfo.attendedSessions = attendanceCount;
-            qInfo.remainingSessions = Math.max(totalSessions - attendanceCount, 0);
-          }
+            },
+          });
+          qInfo.attendedSessions = attendanceCount;
+          qInfo.remainingSessions = Math.max(totalSessions - attendanceCount, 0);
         }
       }
       quotas.push(qInfo);
@@ -86,7 +107,7 @@ export async function GET(request: NextRequest) {
       quotas: quotas.length > 0 ? quotas : [defaultEmptyQuota],
       history: attendances,
     });
-  } catch (error: any) {
+  } catch (error) {
     console.error("Fetch Attendance History Error:", error);
     return errorResponse("Gagal mengambil riwayat absensi.", 500);
   }

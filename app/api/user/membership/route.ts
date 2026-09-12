@@ -2,6 +2,9 @@ import { Op } from "sequelize";
 
 import { Membership, MembershipPlan, User } from "@/database/models";
 import { errorResponse, successResponse } from "@/lib/response";
+import { requireAuth } from "@/lib/rbac";
+
+export const runtime = "nodejs";
 
 function toNumber(value: unknown, defaultValue = 0) {
   const number = Number(value);
@@ -19,10 +22,14 @@ function toBoolean(value: unknown, defaultValue = false) {
   return defaultValue;
 }
 
-function serializeUser(user: any) {
+function serializeUser(user: unknown) {
   if (!user) return null;
 
-  const data = user?.get ? user.get({ plain: true }) : user;
+  const data = (
+    typeof (user as { get?: unknown }).get === "function"
+      ? (user as { get: (opt: { plain: boolean }) => Record<string, unknown> }).get({ plain: true })
+      : user
+  ) as Record<string, unknown>;
 
   return {
     id: data.id,
@@ -34,10 +41,14 @@ function serializeUser(user: any) {
   };
 }
 
-function serializePlan(plan: any) {
+function serializePlan(plan: unknown) {
   if (!plan) return null;
 
-  const data = plan?.get ? plan.get({ plain: true }) : plan;
+  const data = (
+    typeof (plan as { get?: unknown }).get === "function"
+      ? (plan as { get: (opt: { plain: boolean }) => Record<string, unknown> }).get({ plain: true })
+      : plan
+  ) as Record<string, unknown>;
 
   const durationDays = Math.max(
     Number(data.durationDays ?? data.duration_days ?? 30),
@@ -82,10 +93,14 @@ function serializePlan(plan: any) {
   };
 }
 
-function serializeMembership(membership: any, user: any, plan: any) {
+function serializeMembership(membership: unknown, user: unknown, plan: unknown) {
   if (!membership) return null;
 
-  const data = membership?.get ? membership.get({ plain: true }) : membership;
+  const data = (
+    typeof (membership as { get?: unknown }).get === "function"
+      ? (membership as { get: (opt: { plain: boolean }) => Record<string, unknown> }).get({ plain: true })
+      : membership
+  ) as Record<string, unknown>;
   const serializedPlan = serializePlan(plan);
 
   const userScheduleSet = toBoolean(
@@ -143,18 +158,30 @@ function serializeMembership(membership: any, user: any, plan: any) {
 /**
  * GET /api/user/membership?userId=1
  *
- * Ambil membership terakhir milik user.
+ * Ambil membership terakhir milik user secara aman dengan token verifikasi & eager loading.
  */
 export async function GET(request: Request) {
   try {
-    const url = new URL(request.url);
-    const userId = toNumber(url.searchParams.get("userId"), 0);
-
-    if (!userId) {
-      return errorResponse("User ID wajib dikirim", 400);
+    const auth = await requireAuth(request);
+    if (!auth.success) {
+      return errorResponse(auth.message, auth.statusCode);
     }
 
-    const user = await User.findByPk(userId);
+    const url = new URL(request.url);
+    const queryUserId = toNumber(url.searchParams.get("userId"), 0);
+    const targetUserId = queryUserId > 0 ? queryUserId : auth.user.id;
+
+    const requesterRole = String(auth.user.role || "").toLowerCase();
+    const isStaff = ["admin", "owner", "direktur", "manager", "sales", "kasir"].includes(requesterRole);
+
+    if (targetUserId !== auth.user.id && !isStaff) {
+      return errorResponse(
+        "Akses ditolak: Anda tidak memiliki izin untuk melihat data paket pengguna lain",
+        403
+      );
+    }
+
+    const user = await User.findByPk(targetUserId);
 
     if (!user) {
       return errorResponse("User tidak ditemukan", 404);
@@ -162,7 +189,7 @@ export async function GET(request: Request) {
 
     const memberships = await Membership.findAll({
       where: {
-        userId,
+        userId: targetUserId,
         paymentStatus: {
           [Op.in]: ["paid", "unpaid"],
         },
@@ -170,6 +197,13 @@ export async function GET(request: Request) {
           [Op.in]: ["pending", "active", "expired", "revoked"],
         },
       },
+      include: [
+        {
+          model: MembershipPlan,
+          as: "plan",
+          required: false,
+        },
+      ],
       order: [
         ["createdAt", "DESC"],
         ["id", "DESC"],
@@ -187,14 +221,11 @@ export async function GET(request: Request) {
       });
     }
 
-    const serializedMemberships = await Promise.all(
-      memberships.map(async (m) => {
-        const plan = m.planId
-          ? await MembershipPlan.findByPk(m.planId)
-          : null;
-        return serializeMembership(m, user, plan);
-      })
-    );
+    const serializedMemberships = memberships.map((m) => {
+      const plainMembership = m.get({ plain: true }) as unknown as Record<string, unknown>;
+      const plan = plainMembership.plan;
+      return serializeMembership(plainMembership, user, plan);
+    });
 
     return successResponse({
       message: "Paket membership user berhasil diambil",

@@ -105,7 +105,7 @@ export async function GET(request: NextRequest) {
     // Helper to generate dates in range (newest first)
     const getDatesInRange = (startStr: string, endStr: string) => {
       const dates = [];
-      let current = new Date(`${startStr}T12:00:00`);
+      const current = new Date(`${startStr}T12:00:00`);
       const end = new Date(`${endStr}T12:00:00`);
       while (current <= end) {
         dates.push(current.toISOString().split("T")[0]);

@@ -6,7 +6,7 @@ import bcrypt from "bcryptjs";
 export const runtime = "nodejs";
 
 const OTP_EXPIRED_MINUTES = 5;
-const RESEND_COOLDOWN_MINUTES = 5;
+const RESEND_COOLDOWN_MINUTES = 1;
 
 function generateOtpCode() {
   return Math.floor(100000 + Math.random() * 900000).toString();
@@ -69,17 +69,17 @@ export async function POST(request: Request) {
     const otpHash = await bcrypt.hash(otpCode, 10);
     const now = new Date();
 
-    user.emailVerificationCodeHash = otpHash;
-    user.emailVerificationExpiresAt = addMinutes(now, OTP_EXPIRED_MINUTES);
-    user.emailVerificationLastSentAt = now;
-
-    await user.save();
-
     await sendEmailVerificationCode({
       to: user.email,
       name: user.name,
       code: otpCode,
     });
+
+    user.emailVerificationCodeHash = otpHash;
+    user.emailVerificationExpiresAt = addMinutes(now, OTP_EXPIRED_MINUTES);
+    user.emailVerificationLastSentAt = now;
+
+    await user.save();
 
     return successResponse(
       {

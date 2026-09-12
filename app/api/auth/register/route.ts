@@ -7,7 +7,7 @@ import bcrypt from "bcryptjs";
 export const runtime = "nodejs";
 
 const OTP_EXPIRED_MINUTES = 5;
-const RESEND_COOLDOWN_MINUTES = 5;
+const RESEND_COOLDOWN_MINUTES = 1;
 
 function generateOtpCode() {
   return Math.floor(100000 + Math.random() * 900000).toString();
@@ -30,22 +30,35 @@ export async function POST(request: Request) {
     const body = await request.json();
 
     const name = String(body.name || "").trim();
-    const phone = String(body.phone || "").trim();
+    const phoneInput = String(body.phone || "").trim();
     const email = String(body.email || "").trim().toLowerCase();
     const password = String(body.password || "");
     const referralCodeInput = body.referralCode
       ? String(body.referralCode).trim().toUpperCase()
       : null;
 
-    if (!name || !phone || !email || !password) {
+    if (!name || !phoneInput || !email || !password) {
       return errorResponse("Nama, no HP, email, dan password wajib diisi", 400);
+    }
+
+    if (name.length < 2) {
+      return errorResponse("Nama minimal 2 karakter", 400);
+    }
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return errorResponse("Format email tidak valid", 400);
+    }
+
+    const cleanPhone = phoneInput.replace(/[^0-9]/g, "");
+    if (cleanPhone.length < 9 || cleanPhone.length > 15) {
+      return errorResponse("Nomor HP harus antara 9 - 15 digit angka", 400);
     }
 
     if (password.length < 6) {
       return errorResponse("Password minimal 6 karakter", 400);
     }
 
-    let existingUser = await User.findOne({
+    const existingUser = await User.findOne({
       where: { email },
     });
 
@@ -54,7 +67,7 @@ export async function POST(request: Request) {
     }
 
     const existingPhone = await User.findOne({
-      where: { phone },
+      where: { phone: cleanPhone },
     });
 
     if (existingPhone && existingPhone.id !== existingUser?.id) {
@@ -88,7 +101,7 @@ export async function POST(request: Request) {
       const now = new Date();
 
       existingUser.name = name;
-      existingUser.phone = phone;
+      existingUser.phone = cleanPhone;
       existingUser.password = await bcrypt.hash(password, 10);
       existingUser.emailVerificationCodeHash = otpHash;
       existingUser.emailVerificationExpiresAt = addMinutes(
@@ -97,13 +110,13 @@ export async function POST(request: Request) {
       );
       existingUser.emailVerificationLastSentAt = now;
 
-      await existingUser.save();
-
       await sendEmailVerificationCode({
         to: email,
         name,
         code: otpCode,
       });
+
+      await existingUser.save();
 
       return successResponse(
         {
@@ -134,6 +147,16 @@ export async function POST(request: Request) {
         return errorResponse("Kode referral tidak ditemukan", 404);
       }
 
+      if (
+        referrer.email?.toLowerCase() === email ||
+        referrer.phone === cleanPhone
+      ) {
+        return errorResponse(
+          "Tidak dapat menggunakan kode referral milik sendiri",
+          400
+        );
+      }
+
       referredByUserId = referrer.id;
       referredByCode = referrer.referralCode;
     }
@@ -156,9 +179,15 @@ export async function POST(request: Request) {
     const otpHash = await bcrypt.hash(otpCode, 10);
     const now = new Date();
 
+    await sendEmailVerificationCode({
+      to: email,
+      name,
+      code: otpCode,
+    });
+
     const user = await User.create({
       name,
-      phone,
+      phone: cleanPhone,
       email,
       password: hashedPassword,
       role: "customer",
@@ -171,12 +200,6 @@ export async function POST(request: Request) {
       emailVerificationCodeHash: otpHash,
       emailVerificationExpiresAt: addMinutes(now, OTP_EXPIRED_MINUTES),
       emailVerificationLastSentAt: now,
-    });
-
-    await sendEmailVerificationCode({
-      to: email,
-      name,
-      code: otpCode,
     });
 
     return successResponse(

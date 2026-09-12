@@ -32,6 +32,9 @@ type LoginUserData = {
 
   emailVerifiedAt?: Date | string | null;
   email_verified_at?: Date | string | null;
+
+  photoUrl?: string | null;
+  photo_url?: string | null;
 };
 
 function serializeLoginUser(userData: LoginUserData) {
@@ -62,6 +65,8 @@ function serializeLoginUser(userData: LoginUserData) {
 
     emailVerifiedAt:
       userData.emailVerifiedAt ?? userData.email_verified_at ?? null,
+
+    photoUrl: userData.photoUrl ?? userData.photo_url ?? null,
   };
 }
 
@@ -76,9 +81,19 @@ export async function POST(request: Request) {
       return errorResponse("Email/no HP dan password wajib diisi", 400);
     }
 
+    const cleanDigits = identifier.replace(/[^0-9]/g, "");
+    const searchConditions: Array<Record<string, unknown>> = [
+      { email: identifier },
+      { phone: identifier },
+    ];
+
+    if (cleanDigits.length >= 8) {
+      searchConditions.push({ phone: cleanDigits });
+    }
+
     const user = await User.findOne({
       where: {
-        [Op.or]: [{ email: identifier }, { phone: identifier }],
+        [Op.or]: searchConditions,
       },
     });
 

@@ -1,9 +1,17 @@
 const { Client } = require('pg');
 const bcrypt = require('bcryptjs');
 
-const dbUrl = 'postgresql://postgres@localhost:5432/prima_gym_db';
+const dbUrl = process.env.DATABASE_URL || 'postgresql://postgres@localhost:5432/prima_gym_db';
 
 const usersToSeed = [
+  {
+    name: 'Admin Prima Gym',
+    email: 'admin@primagym.com',
+    phone: '080000000001',
+    password: process.env.INITIAL_ADMIN_PASSWORD || 'admin123',
+    role: 'admin',
+    referral_code: 'ADMIN-PRIMA'
+  },
   {
     name: 'Owner Prima Gym',
     email: 'owner@primagym.com',
@@ -61,7 +69,6 @@ async function seed() {
     console.log('Connected to PostgreSQL');
 
     for (const u of usersToSeed) {
-      // Check if user exists
       const { rows } = await client.query('SELECT id FROM users WHERE email = $1', [u.email]);
       if (rows.length > 0) {
         console.log(`User already exists: ${u.email}`);

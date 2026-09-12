@@ -13,12 +13,24 @@ export function successResponse(data: ApiResponseData = {}, status = 200) {
 }
 
 export function errorResponse(message: string, status = 400, error?: unknown) {
-  return NextResponse.json(
-    {
-      success: false,
-      message,
-      error: error instanceof Error ? error.message : error,
-    },
-    { status }
-  );
+  const isDev = process.env.NODE_ENV === "development";
+
+  const responseBody: Record<string, unknown> = {
+    success: false,
+    message,
+  };
+
+  if (error !== undefined) {
+    if (isDev) {
+      responseBody.error = error instanceof Error ? error.message : error;
+    } else if (
+      typeof error === "object" &&
+      error !== null &&
+      "needEmailVerification" in error
+    ) {
+      responseBody.error = error;
+    }
+  }
+
+  return NextResponse.json(responseBody, { status });
 }

@@ -2,6 +2,7 @@ import { Op } from "sequelize";
 
 import { Membership, User } from "@/database/models";
 import { errorResponse, successResponse } from "@/lib/response";
+import { requireAuth } from "@/lib/rbac";
 
 export const runtime = "nodejs";
 
@@ -28,10 +29,14 @@ function serializeDate(value: unknown) {
   return parsed.toISOString();
 }
 
-function getMembershipStatus(membership: any) {
+function getMembershipStatus(membership: unknown) {
   if (!membership) return "pending";
 
-  const data = membership?.get ? membership.get({ plain: true }) : membership;
+  const data = (
+    typeof (membership as { get?: unknown }).get === "function"
+      ? (membership as { get: (opt: { plain: boolean }) => Record<string, unknown> }).get({ plain: true })
+      : membership
+  ) as Record<string, unknown>;
 
   const paymentStatus = String(
     data.paymentStatus ?? data.payment_status ?? "",
@@ -65,11 +70,18 @@ function getMembershipStatus(membership: any) {
   return "pending";
 }
 
-function serializeReferralUser(user: any, membership: any) {
-  const userData = user?.get ? user.get({ plain: true }) : user;
-  const membershipData = membership?.get
-    ? membership.get({ plain: true })
-    : membership;
+function serializeReferralUser(user: unknown, membership: unknown) {
+  const userData = (
+    typeof (user as { get?: unknown }).get === "function"
+      ? (user as { get: (opt: { plain: boolean }) => Record<string, unknown> }).get({ plain: true })
+      : user
+  ) as Record<string, unknown>;
+
+  const membershipData = (
+    membership && typeof (membership as { get?: unknown }).get === "function"
+      ? (membership as { get: (opt: { plain: boolean }) => Record<string, unknown> }).get({ plain: true })
+      : membership
+  ) as Record<string, unknown> | null;
 
   const status = getMembershipStatus(membershipData);
   const reward = status === "rewarded" ? REFERRAL_REWARD_AMOUNT : 0;
@@ -114,24 +126,36 @@ function serializeReferralUser(user: any, membership: any) {
  */
 export async function GET(request: Request) {
   try {
-    const url = new URL(request.url);
-    const userId = toNumber(url.searchParams.get("userId"), 0);
-
-    if (!userId) {
-      return errorResponse("User ID wajib dikirim", 400);
+    const auth = await requireAuth(request);
+    if (!auth.success) {
+      return errorResponse(auth.message, auth.statusCode);
     }
 
-    const user = await User.findByPk(userId);
+    const url = new URL(request.url);
+    const queryUserId = toNumber(url.searchParams.get("userId"), 0);
+    const targetUserId = queryUserId > 0 ? queryUserId : auth.user.id;
+
+    const requesterRole = String(auth.user.role || "").toLowerCase();
+    const isStaff = ["admin", "owner", "direktur", "manager", "sales"].includes(requesterRole);
+
+    if (targetUserId !== auth.user.id && !isStaff) {
+      return errorResponse(
+        "Akses ditolak: Anda tidak memiliki izin untuk melihat data referral pengguna lain",
+        403
+      );
+    }
+
+    const user = await User.findByPk(targetUserId);
 
     if (!user) {
       return errorResponse("User tidak ditemukan", 404);
     }
 
-    const userData = user.get({ plain: true }) as any;
+    const userData = user.get({ plain: true }) as unknown as Record<string, unknown>;
 
     const referredUsers = await User.findAll({
       where: {
-        referredByUserId: userId,
+        referredByUserId: targetUserId,
       },
       order: [
         ["createdAt", "DESC"],
@@ -141,11 +165,11 @@ export async function GET(request: Request) {
 
     const users = await Promise.all(
       referredUsers.map(async (referredUser) => {
-        const referredUserData = referredUser.get({ plain: true }) as any;
+        const referredUserData = referredUser.get({ plain: true }) as unknown as Record<string, unknown>;
 
         const membership = await Membership.findOne({
           where: {
-            userId: referredUserData.id,
+            userId: Number(referredUserData.id),
             paymentStatus: {
               [Op.in]: ["paid", "unpaid"],
             },

@@ -87,6 +87,15 @@ export async function GET(request: Request) {
 
     const userData = user.get({ plain: true }) as MeUserData;
 
+    const isActive = userData.isActive ?? userData.is_active ?? true;
+
+    if (isActive === false) {
+      return errorResponse(
+        "Akun kamu belum aktif atau sedang dinonaktifkan",
+        403
+      );
+    }
+
     return successResponse({
       message: "Data user berhasil diambil",
       data: serializeMeUser(userData),

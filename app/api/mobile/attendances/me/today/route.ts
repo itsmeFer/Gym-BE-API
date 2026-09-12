@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { Attendance } from "@/database/models";
 import { errorResponse, successResponse } from "@/lib/response";
-import { getTokenFromRequest, verifyToken } from "@/lib/auth";
+import { requireAuth } from "@/lib/rbac";
 
 function getJakartaDateString() {
   return new Intl.DateTimeFormat("en-CA", {
@@ -93,17 +93,18 @@ function formatWorkDuration(totalSeconds: number) {
   return `${seconds} detik`;
 }
 
-function serializeAttendance(attendance: any) {
+function serializeAttendance(attendance: unknown) {
   if (!attendance) return null;
 
-  const plain =
-    typeof attendance.get === "function"
-      ? attendance.get({ plain: true })
-      : attendance;
+  const plain = (
+    typeof (attendance as { get?: unknown }).get === "function"
+      ? (attendance as { get: (opt: { plain: boolean }) => Record<string, unknown> }).get({ plain: true })
+      : attendance
+  ) as Record<string, unknown>;
 
   const workDurationSeconds = calculateWorkDurationSeconds(
-    plain.checkIn,
-    plain.checkOut
+    plain.checkIn as string | null | undefined,
+    plain.checkOut as string | null | undefined
   );
 
   const workDurationMinutes = Math.floor(workDurationSeconds / 60);
@@ -120,17 +121,13 @@ function serializeAttendance(attendance: any) {
 
 export async function GET(request: NextRequest) {
   try {
-    const token = getTokenFromRequest(request);
-    let authenticatedUserId: number | null = null;
-    let requesterRole = "";
-
-    if (token) {
-      const decoded = verifyToken(token);
-      if (decoded && decoded.id) {
-        authenticatedUserId = decoded.id;
-        requesterRole = String(decoded.role ?? "").toLowerCase();
-      }
+    const auth = await requireAuth(request);
+    if (!auth.success) {
+      return errorResponse(auth.message, auth.statusCode);
     }
+
+    const authenticatedUserId = auth.user.id;
+    const requesterRole = String(auth.user.role ?? "").toLowerCase();
 
     const searchParams = request.nextUrl.searchParams;
     const queryUserId = toNumberOrNull(searchParams.get("userId"));
@@ -140,18 +137,15 @@ export async function GET(request: NextRequest) {
     const allowedAdminRoles = ["admin", "owner", "direktur", "manager"];
     let finalUserId: number | null = authenticatedUserId;
 
-    if (queryUserId) {
-      if (authenticatedUserId && queryUserId !== authenticatedUserId) {
-        if (allowedAdminRoles.includes(requesterRole)) {
-          finalUserId = queryUserId;
-        }
-      } else if (!authenticatedUserId) {
+    if (queryUserId && queryUserId !== authenticatedUserId) {
+      if (allowedAdminRoles.includes(requesterRole)) {
         finalUserId = queryUserId;
+      } else {
+        return errorResponse(
+          "Akses ditolak: Anda tidak berhak melihat absensi pengguna lain",
+          403
+        );
       }
-    }
-
-    if (!finalUserId && !queryRole) {
-      return errorResponse("User atau role wajib disertakan", 400);
     }
 
     const where: Record<string, unknown> = {

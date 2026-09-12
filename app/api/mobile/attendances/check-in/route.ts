@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { Op } from "sequelize";
 import { Attendance, AttendanceSetting, Membership, User, PointHistory, MembershipPlan } from "@/database/models";
 import { errorResponse, successResponse } from "@/lib/response";
+import { requireAuth } from "@/lib/rbac";
 
 type AttendanceSettingRaw = {
   id: number;
@@ -282,13 +283,21 @@ function serializeAttendance(attendance: any) {
 
 export async function POST(request: NextRequest) {
   try {
+    const auth = await requireAuth(request);
+    if (!auth.success) {
+      return errorResponse(auth.message, auth.statusCode);
+    }
+
     const body = (await request.json()) as Record<string, unknown>;
 
-    const userId = toNumberOrNull(body.userId ?? body.user_id);
-    const fullName = String(
-      body.fullName ?? body.full_name ?? body.name ?? ""
-    ).trim();
-    const role = String(body.role ?? "").trim().toLowerCase();
+    const userFromDb = await User.findByPk(auth.user.id);
+    if (!userFromDb) {
+      return errorResponse("User tidak ditemukan", 404);
+    }
+
+    const userId = auth.user.id;
+    const fullName = userFromDb.name || "Member";
+    const role = String(userFromDb.role || auth.user.role || "").trim().toLowerCase();
 
     const userLatitude = toNumberOrNull(body.latitude ?? body.lat);
     const userLongitude = toNumberOrNull(
@@ -305,18 +314,6 @@ export async function POST(request: NextRequest) {
 
     const checkInPhoto = getRequiredCheckInPhoto(body);
     const note = body.note ? String(body.note).trim() : null;
-
-    if (!userId) {
-      return errorResponse("User belum dikenali. Silakan login ulang.", 400);
-    }
-
-    if (!fullName) {
-      return errorResponse("Nama user tidak ditemukan", 400);
-    }
-
-    if (!role) {
-      return errorResponse("Role user tidak ditemukan", 400);
-    }
 
     if (!checkInPhoto) {
       return errorResponse("Foto absen masuk wajib dikirim.", 400);
@@ -454,8 +451,14 @@ export async function POST(request: NextRequest) {
 
     // Reward +1 point to assigned PT if this check-in is for a PT/Class session
     try {
-      let targetPtName: string | null = (typeof (body as any).ptName === "string" ? (body as any).ptName : typeof (body as any).assignedPtName === "string" ? (body as any).assignedPtName : null);
-      let classTitle: string = typeof (body as any).classTitle === "string" ? (body as any).classTitle : "Kelas Gym";
+      let targetPtName: string | null =
+        typeof body.ptName === "string"
+          ? body.ptName
+          : typeof body.assignedPtName === "string"
+            ? body.assignedPtName
+            : null;
+      let classTitle: string =
+        typeof body.classTitle === "string" ? body.classTitle : "Kelas Gym";
 
       if (!targetPtName && note) {
         const ptMatch = note.match(/PT:\s*([^•\n]+)/);

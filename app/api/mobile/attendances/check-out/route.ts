@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { Op } from "sequelize";
 import { Attendance, AttendanceSetting } from "@/database/models";
 import { errorResponse, successResponse } from "@/lib/response";
+import { requireAuth } from "@/lib/rbac";
 
 type AttendanceSettingRaw = {
   id: number;
@@ -294,17 +295,18 @@ function validateDistance(params: {
   };
 }
 
-function serializeAttendance(attendance: any) {
+function serializeAttendance(attendance: unknown) {
   if (!attendance) return null;
 
-  const plain =
-    typeof attendance.get === "function"
-      ? attendance.get({ plain: true })
-      : attendance;
+  const plain = (
+    typeof (attendance as { get?: unknown }).get === "function"
+      ? (attendance as { get: (opt: { plain: boolean }) => Record<string, unknown> }).get({ plain: true })
+      : attendance
+  ) as Record<string, unknown>;
 
   const workDurationMinutes = calculateWorkDurationMinutes(
-    plain.checkIn,
-    plain.checkOut
+    plain.checkIn as string | null | undefined,
+    plain.checkOut as string | null | undefined
   );
 
   return {
@@ -316,9 +318,13 @@ function serializeAttendance(attendance: any) {
 
 export async function POST(request: NextRequest) {
   try {
-    const body = (await request.json()) as Record<string, unknown>;
+    const auth = await requireAuth(request);
+    if (!auth.success) {
+      return errorResponse(auth.message, auth.statusCode);
+    }
 
-    const userId = toNumberOrNull(body.userId ?? body.user_id);
+    const body = (await request.json()) as Record<string, unknown>;
+    const userId = auth.user.id;
 
     const userLatitude = toNumberOrNull(body.latitude ?? body.lat);
     const userLongitude = toNumberOrNull(
@@ -335,10 +341,6 @@ export async function POST(request: NextRequest) {
 
     const checkOutPhoto = getRequiredCheckOutPhoto(body);
     const note = body.note ? String(body.note).trim() : null;
-
-    if (!userId) {
-      return errorResponse("User belum dikenali. Silakan login ulang.", 400);
-    }
 
     if (!checkOutPhoto) {
       return errorResponse("Foto absen keluar wajib dikirim.", 400);

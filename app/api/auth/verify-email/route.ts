@@ -1,6 +1,7 @@
 import { User } from "@/database/models";
 import { errorResponse, successResponse } from "@/lib/response";
 import bcrypt from "bcryptjs";
+import jwt from "jsonwebtoken";
 
 export const runtime = "nodejs";
 
@@ -30,13 +31,29 @@ export async function POST(request: Request) {
     }
 
     if (user.emailVerifiedAt) {
+      const role = String(user.role ?? "customer").toLowerCase();
+      const token = jwt.sign(
+        {
+          id: user.id,
+          role,
+          email: user.email,
+        },
+        process.env.JWT_SECRET || "default_secret",
+        {
+          expiresIn: "7d",
+        }
+      );
+
       return successResponse(
         {
           message: "Email sudah terverifikasi",
           data: {
             id: user.id,
+            name: user.name,
             email: user.email,
+            role,
             verified: true,
+            token,
           },
         },
         200
@@ -78,15 +95,30 @@ export async function POST(request: Request) {
 
     await user.save();
 
+    const role = String(user.role ?? "customer").toLowerCase();
+
+    const token = jwt.sign(
+      {
+        id: user.id,
+        role,
+        email: user.email,
+      },
+      process.env.JWT_SECRET || "default_secret",
+      {
+        expiresIn: "7d",
+      }
+    );
+
     return successResponse(
       {
-        message: "Email berhasil diverifikasi. Silakan login.",
+        message: "Email berhasil diverifikasi.",
         data: {
           id: user.id,
           name: user.name,
           email: user.email,
-          role: user.role,
+          role,
           verified: true,
+          token,
         },
       },
       200
