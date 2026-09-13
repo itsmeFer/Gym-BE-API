@@ -18,7 +18,16 @@ export async function GET(request: NextRequest) {
     const queryUserId = Number(searchParams.get("userId") ?? "");
 
     const requesterRole = String(auth.user.role || "").toLowerCase();
-    const isStaff = ["admin", "owner", "direktur", "manager", "sales"].includes(requesterRole);
+    const isStaff = [
+      "admin",
+      "owner",
+      "direktur",
+      "manager",
+      "sales",
+      "kasir",
+      "pt",
+      "trainer",
+    ].includes(requesterRole);
 
     const targetUserId = queryUserId > 0 ? queryUserId : auth.user.id;
 

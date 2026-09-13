@@ -134,7 +134,16 @@ export async function GET(request: NextRequest) {
     const queryRole = String(searchParams.get("role") ?? "").trim().toLowerCase();
     const date = searchParams.get("date") || getJakartaDateString();
 
-    const allowedAdminRoles = ["admin", "owner", "direktur", "manager"];
+    const allowedAdminRoles = [
+      "admin",
+      "owner",
+      "direktur",
+      "manager",
+      "sales",
+      "kasir",
+      "trainer",
+      "pt",
+    ];
     let finalUserId: number | null = authenticatedUserId;
 
     if (queryUserId && queryUserId !== authenticatedUserId) {

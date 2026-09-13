@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { Op } from "sequelize";
 import { Membership, MembershipPlan, User, PtSession } from "@/database/models";
 import { errorResponse, successResponse } from "@/lib/response";
+import { requireAuth } from "@/lib/rbac";
 import {
   CustomClass,
   initializeClassesFromPlans,
@@ -24,12 +25,19 @@ function toNumber(value: unknown, defaultValue = 0) {
  */
 export async function GET(request: NextRequest) {
   try {
-    const url = new URL(request.url);
-    const userId = toNumber(url.searchParams.get("userId"), 0);
-
-    if (!userId) {
-      return errorResponse("User ID wajib dikirim", 400);
+    const auth = await requireAuth(request);
+    if (!auth.success) {
+      return errorResponse(auth.message, auth.statusCode);
     }
+
+    const url = new URL(request.url);
+    const queryUserId = toNumber(url.searchParams.get("userId"), 0);
+
+    const isStaff = ["admin", "manager", "trainer", "sales", "owner", "it", "superadmin"].includes(
+      auth.user.role,
+    );
+
+    const userId = isStaff && queryUserId > 0 ? queryUserId : auth.user.id;
 
     const user = await User.findByPk(userId);
     if (!user) {

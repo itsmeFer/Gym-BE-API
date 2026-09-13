@@ -1,16 +1,23 @@
 import { NextRequest } from "next/server";
 import { Membership } from "@/database/models";
 import { errorResponse, successResponse } from "@/lib/response";
+import { requireAuth } from "@/lib/rbac";
 
 // In-memory store for user class bookings
 const inMemoryBookings: Map<number, any[]> = new Map();
 
 export async function GET(request: NextRequest) {
   try {
-    const userId = Number(request.nextUrl.searchParams.get("userId"));
-    if (!userId) {
-      return errorResponse("User ID wajib diisi", 400);
+    const auth = await requireAuth(request);
+    if (!auth.success) {
+      return errorResponse(auth.message, auth.statusCode);
     }
+
+    const queryUserId = Number(request.nextUrl.searchParams.get("userId"));
+    const isStaff = ["admin", "manager", "trainer", "sales", "owner", "it", "superadmin"].includes(
+      auth.user.role,
+    );
+    const userId = isStaff && queryUserId > 0 ? queryUserId : auth.user.id;
 
     const bookings = inMemoryBookings.get(userId) || [];
 
@@ -26,11 +33,22 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-    const { userId, classId, className, ptName, date, time } = body;
+    const auth = await requireAuth(request);
+    if (!auth.success) {
+      return errorResponse(auth.message, auth.statusCode);
+    }
 
-    if (!userId || !classId || !date) {
-      return errorResponse("User ID, Class ID, dan Tanggal wajib diisi", 400);
+    const body = await request.json();
+    const { classId, className, ptName, date, time } = body;
+    const bodyUserId = Number(body.userId);
+
+    const isStaff = ["admin", "manager", "trainer", "sales", "owner", "it", "superadmin"].includes(
+      auth.user.role,
+    );
+    const userId = isStaff && bodyUserId > 0 ? bodyUserId : auth.user.id;
+
+    if (!classId || !date) {
+      return errorResponse("Class ID dan Tanggal wajib diisi", 400);
     }
 
     // 1. Validate Active Membership Status from Database

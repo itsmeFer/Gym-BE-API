@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 
 import { Membership, MembershipPlan, User } from "@/database/models";
 import { errorResponse, successResponse } from "@/lib/response";
+import { requireAuth } from "@/lib/rbac";
 
 function toNumber(value: unknown, defaultValue = 0) {
   const number = Number(value);
@@ -146,17 +147,23 @@ function serializeMembership(membership: any) {
  */
 export async function POST(request: NextRequest) {
   try {
+    const auth = await requireAuth(request);
+    if (!auth.success) {
+      return errorResponse(auth.message, auth.statusCode);
+    }
+
     const body = await request.json();
 
-    const userId = toNumber(body.userId ?? body.user_id, 0);
+    const bodyUserId = toNumber(body.userId ?? body.user_id, 0);
+    const isStaff = ["admin", "manager", "trainer", "sales", "owner", "it", "superadmin"].includes(
+      auth.user.role,
+    );
+    const userId = isStaff && bodyUserId > 0 ? bodyUserId : auth.user.id;
+
     const membershipId = toNumber(body.membershipId ?? body.membership_id, 0);
     const selectedStartDate = parseDateOnly(
       body.startedAt ?? body.started_at,
     );
-
-    if (!userId) {
-      return errorResponse("User ID wajib dikirim", 400);
-    }
 
     if (!membershipId) {
       return errorResponse("Membership ID wajib dikirim", 400);
