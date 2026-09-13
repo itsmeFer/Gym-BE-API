@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 
 import { Membership, MembershipPlan, User } from "@/database/models";
 import { errorResponse, successResponse } from "@/lib/response";
+import { getTokenFromRequest, verifyToken } from "@/lib/auth";
 
 function toNumber(value: unknown, defaultValue = 0) {
   const number = Number(value);
@@ -42,29 +43,35 @@ function serializeMembership(membership: any) {
   };
 }
 
+function requireSalesAuth(request: NextRequest) {
+  const token = getTokenFromRequest(request);
+  if (!token) return null;
+  const payload = verifyToken(token);
+  if (!payload) return null;
+  if (payload.role?.toLowerCase() !== "sales") return null;
+  return payload;
+}
+
 /**
- * GET /api/sales/members?salesUserId=4
+ * GET /api/sales/members
  *
- * Ambil riwayat membership/follow up milik sales.
+ * Ambil riwayat membership milik sales yang sedang login.
+ * salesUserId diambil dari JWT — tidak bisa dimanipulasi client.
  */
 export async function GET(request: NextRequest) {
   try {
-    const searchParams = request.nextUrl.searchParams;
-    const salesUserId = toNumber(searchParams.get("salesUserId"), 0);
-
-    const where: Record<string, unknown> = {};
-
-    if (salesUserId > 0) {
-      where.salesUserId = salesUserId;
+    const auth = requireSalesAuth(request);
+    if (!auth) {
+      return errorResponse("Autentikasi gagal atau bukan role sales", 401);
     }
 
     const memberships = await Membership.findAll({
-      where,
+      where: { salesUserId: auth.id },
       include: [
         {
           model: User,
           as: "user",
-          attributes: ["id", "name", "email", "phone", "role", "isActive"],
+          attributes: ["id", "name", "email", "phone", "role", "isActive", "photoUrl"],
         },
         {
           model: User,
@@ -92,36 +99,30 @@ export async function GET(request: NextRequest) {
 /**
  * POST /api/sales/members
  *
- * Sales hanya membuat status/follow up membership.
- * Nominal pembayaran tidak diisi sales.
- * Kasir nanti yang mengubah:
- * - paymentStatus
- * - paidAmount
- * - paidAt
- * - memberStatus
- * - startedAt
- * - expiredAt
+ * Sales membuat follow up membership.
+ * salesUserId diambil dari JWT — tidak bisa dimanipulasi client.
+ * Kasir yang akan mengubah paymentStatus, paidAmount, memberStatus.
  */
 export async function POST(request: NextRequest) {
   try {
+    const auth = requireSalesAuth(request);
+    if (!auth) {
+      return errorResponse("Autentikasi gagal atau bukan role sales", 401);
+    }
+
     const body = await request.json();
 
-    const salesUserId = toNumber(body.salesUserId ?? body.sales_user_id, 0);
     const userId = toNumber(body.userId ?? body.user_id, 0);
     const planId = toNumber(body.planId ?? body.plan_id, 0);
 
-    const salesStatus = String(
-      body.salesStatus ?? body.sales_status ?? "pending",
-    )
+    const salesStatus = String(body.salesStatus ?? body.sales_status ?? "pending")
       .trim()
       .toLowerCase();
 
     const notes = body.notes ? String(body.notes).trim() : null;
-    const paymentProofPhoto = body.paymentProofPhoto ? String(body.paymentProofPhoto) : null;
-
-    if (!salesUserId) {
-      return errorResponse("Sales user wajib dikirim", 400);
-    }
+    const paymentProofPhoto = body.paymentProofPhoto
+      ? String(body.paymentProofPhoto)
+      : null;
 
     if (!userId) {
       return errorResponse("User customer/member wajib dipilih", 400);
@@ -145,16 +146,6 @@ export async function POST(request: NextRequest) {
         "Status sales hanya boleh pending, follow_up, interested, waiting_payment, not_interested, atau cancelled",
         400,
       );
-    }
-
-    const salesUser = await User.findByPk(salesUserId);
-
-    if (!salesUser) {
-      return errorResponse("Sales tidak ditemukan", 404);
-    }
-
-    if (salesUser.role !== "sales") {
-      return errorResponse("User ini bukan role sales", 400);
     }
 
     const user = await User.findByPk(userId);
@@ -181,7 +172,7 @@ export async function POST(request: NextRequest) {
 
     const membership = await Membership.create({
       userId,
-      salesUserId,
+      salesUserId: auth.id,
       planId,
 
       packageName: planData.name,
@@ -207,7 +198,7 @@ export async function POST(request: NextRequest) {
         {
           model: User,
           as: "user",
-          attributes: ["id", "name", "email", "phone", "role", "isActive"],
+          attributes: ["id", "name", "email", "phone", "role", "isActive", "photoUrl"],
         },
         {
           model: User,
@@ -232,3 +223,4 @@ export async function POST(request: NextRequest) {
     return errorResponse("Gagal membuat status sales", 500);
   }
 }
+

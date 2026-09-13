@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { User } from "@/database/models";
 import { getTokenFromRequest, verifyToken } from "@/lib/auth";
 import { errorResponse, successResponse } from "@/lib/response";
@@ -6,6 +6,15 @@ import fs from "fs/promises";
 import path from "path";
 
 export const runtime = "nodejs";
+
+const MAX_BYTES = 5 * 1024 * 1024; // 5MB
+const ALLOWED_MIME = ["image/jpeg", "image/png", "image/webp"];
+const ALLOWED_EXT: Record<string, string> = {
+  jpeg: "jpg",
+  jpg: "jpg",
+  png: "png",
+  webp: "webp",
+};
 
 export async function PUT(request: NextRequest) {
   try {
@@ -28,7 +37,7 @@ export async function PUT(request: NextRequest) {
     }
 
     let buffer: Buffer;
-    let ext = "png";
+    let ext = "jpg";
 
     const contentType = request.headers.get("content-type") || "";
 
@@ -41,13 +50,16 @@ export async function PUT(request: NextRequest) {
       }
 
       if (!photoDataUrl.startsWith("data:image/")) {
-        return errorResponse("Format foto harus base64 data URL", 400);
+        return errorResponse("Format foto harus base64 data URL (data:image/...)", 400);
       }
 
-      const match = photoDataUrl.match(/^data:image\/(\w+);base64,/);
-      if (match) {
-        ext = match[1];
+      const mimeMatch = photoDataUrl.match(/^data:(image\/\w+);base64,/);
+      if (!mimeMatch || !ALLOWED_MIME.includes(mimeMatch[1])) {
+        return errorResponse("Format foto harus JPEG, PNG, atau WebP", 400);
       }
+
+      const rawExt = mimeMatch[1].replace("image/", "");
+      ext = ALLOWED_EXT[rawExt] ?? "jpg";
 
       const base64Data = photoDataUrl.replace(/^data:image\/\w+;base64,/, "");
       buffer = Buffer.from(base64Data, "base64");
@@ -59,16 +71,21 @@ export async function PUT(request: NextRequest) {
         return errorResponse("File foto tidak ditemukan dalam request", 400);
       }
 
-      if (!file.type.startsWith("image/")) {
-        return errorResponse("File harus berupa gambar", 400);
+      if (!ALLOWED_MIME.includes(file.type)) {
+        return errorResponse("Format foto harus JPEG, PNG, atau WebP", 400);
       }
 
       const bytes = await file.arrayBuffer();
       buffer = Buffer.from(bytes);
-      ext = file.name.split(".").pop() || "png";
+
+      const rawExt = file.name.split(".").pop()?.toLowerCase() ?? "jpg";
+      ext = ALLOWED_EXT[rawExt] ?? "jpg";
     }
 
-    // Create uploads/users directory if not exists
+    if (buffer.byteLength > MAX_BYTES) {
+      return errorResponse("Ukuran foto maksimal 5MB", 400);
+    }
+
     const uploadDir = path.join(process.cwd(), "public", "uploads", "users");
     try {
       await fs.access(uploadDir);
@@ -76,26 +93,21 @@ export async function PUT(request: NextRequest) {
       await fs.mkdir(uploadDir, { recursive: true });
     }
 
-    // Determine extension and filename
     const filename = `avatar_${user.id}_${Date.now()}.${ext}`;
     const filepath = path.join(uploadDir, filename);
 
-    // Write file to disk
     await fs.writeFile(filepath, buffer);
 
-    // Delete old avatar if exists
     if (user.photoUrl && user.photoUrl.startsWith("/uploads/users/")) {
       try {
         const oldFile = path.join(process.cwd(), "public", user.photoUrl);
         await fs.unlink(oldFile);
-      } catch (e) {
-        // Ignore if file doesn't exist
+      } catch {
+        // file lama tidak ada, abaikan
       }
     }
 
     const newPhotoUrl = `/uploads/users/${filename}`;
-    
-    // Update database
     user.photoUrl = newPhotoUrl;
     await user.save();
 
@@ -105,6 +117,6 @@ export async function PUT(request: NextRequest) {
     });
   } catch (error) {
     console.error("PUT AVATAR ERROR:", error);
-    return errorResponse("Gagal memperbarui foto profil", 500, error);
+    return errorResponse("Gagal memperbarui foto profil", 500);
   }
 }

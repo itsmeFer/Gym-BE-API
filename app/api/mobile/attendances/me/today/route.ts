@@ -143,6 +143,8 @@ export async function GET(request: NextRequest) {
       "kasir",
       "trainer",
       "pt",
+      "it",
+      "superadmin",
     ];
     let finalUserId: number | null = authenticatedUserId;
 

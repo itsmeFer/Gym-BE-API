@@ -31,6 +31,7 @@ function serializeUser(user: any) {
     phone: data?.phone ?? "",
     role: data?.role ?? "",
     isActive: data?.isActive ?? data?.is_active ?? true,
+    photoUrl: data?.photoUrl ?? data?.photo_url ?? null,
   };
 }
 
@@ -110,7 +111,7 @@ async function findPaymentWithRelations(id: number) {
       {
         model: User,
         as: "user",
-        attributes: ["id", "name", "email", "phone", "role", "isActive"],
+        attributes: ["id", "name", "email", "phone", "role", "isActive", "photoUrl"],
       },
       {
         model: User,
@@ -280,6 +281,15 @@ export async function POST(
 
     if (!memberUser) {
       return errorResponse("User member tidak ditemukan", 404);
+    }
+
+    // ponytail: gate foto wajah — enterprise anti-fraud, foto wajib sebelum aktivasi
+    const memberPhotoUrl = String(memberUser.photoUrl ?? "").trim();
+    if (!memberPhotoUrl) {
+      return errorResponse(
+        "Member belum upload foto wajah. Minta member untuk melengkapi profil terlebih dahulu.",
+        422
+      );
     }
 
     const memberEmail = String(memberUser.email ?? "").trim();

@@ -27,6 +27,8 @@ export async function GET(request: NextRequest) {
       "kasir",
       "pt",
       "trainer",
+      "it",
+      "superadmin",
     ].includes(requesterRole);
 
     const targetUserId = queryUserId > 0 ? queryUserId : auth.user.id;
