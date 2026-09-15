@@ -24,7 +24,8 @@ function getRemainingSeconds(lastSentAt: Date, cooldownMinutes: number) {
 }
 
 // POST /api/auth/me/change-email
-// Dipakai dari halaman Edit Profil saat user sudah login (emailVerifiedAt boleh ada).
+// Minta ganti email dari halaman Edit Profil (user sudah login).
+// Email TIDAK berubah sampai OTP diverifikasi via /api/auth/verify-email.
 export async function POST(request: Request) {
   try {
     const token = getTokenFromRequest(request);
@@ -70,9 +71,8 @@ export async function POST(request: Request) {
 
     await sendEmailVerificationCode({ to: newEmail, name: user.name, code: otpCode });
 
-    // Simpan email baru & reset status verifikasi sampai OTP dikonfirmasi
-    user.email = newEmail;
-    user.emailVerifiedAt = null;
+    // Simpan email baru sebagai pendingEmail — email lama TIDAK diubah sampai OTP dikonfirmasi
+    user.pendingEmail = newEmail;
     user.emailVerificationCodeHash = otpHash;
     user.emailVerificationExpiresAt = addMinutes(now, OTP_EXPIRED_MINUTES);
     user.emailVerificationLastSentAt = now;

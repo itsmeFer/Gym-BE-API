@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { Membership, MembershipPlan, User } from "@/database/models";
 import { buildMembershipAgreementPdf } from "@/lib/pdf/membershipAgreementPdf";
 import { getTokenFromRequest, verifyToken } from "@/lib/auth";
+import { fetchUserPermissionKeys, resolveEffectivePermissions } from "@/lib/feature-permission";
 
 export const runtime = "nodejs";
 
@@ -83,12 +84,25 @@ export async function GET(
         const searchParams = request.nextUrl.searchParams;
         const token = getTokenFromRequest(request) || searchParams.get("token");
         const userPayload = token ? verifyToken(token) : null;
-        const allowedRoles = ["admin", "kasir", "owner", "direktur", "manager"];
+        const superRoles = ["it", "superadmin", "owner", "direktur"];
+        const allowedRoles = ["admin", "kasir", "owner", "direktur", "manager", ...superRoles];
 
         let allowed = false;
 
-        if (userPayload && allowedRoles.includes(userPayload.role.toLowerCase())) {
-            allowed = true;
+        if (userPayload) {
+            const userRole = String(userPayload.role ?? "").toLowerCase();
+            if (allowedRoles.includes(userRole)) {
+                allowed = true;
+            } else {
+                const perms = await fetchUserPermissionKeys(userPayload.id);
+                const effective = resolveEffectivePermissions(userRole, perms);
+                allowed = [
+                    "admin.kasir",
+                    "kasir.verifikasi",
+                    "kasir.pembayaran",
+                    "manager.pembayaran",
+                ].some((k) => effective.includes(k));
+            }
         }
 
         const viewerUserId = toNumber(searchParams.get("viewerUserId"), 0);
@@ -102,8 +116,19 @@ export async function GET(
                 const role = String(viewer.get("role") ?? "").toLowerCase();
                 const isActive = Boolean(viewer.get("isActive") ?? true);
 
-                if (isActive && allowedRoles.includes(role)) {
-                    allowed = true;
+                if (isActive) {
+                    if (allowedRoles.includes(role)) {
+                        allowed = true;
+                    } else {
+                        const perms = await fetchUserPermissionKeys(viewer.id);
+                        const effective = resolveEffectivePermissions(role, perms);
+                        allowed = [
+                            "admin.kasir",
+                            "kasir.verifikasi",
+                            "kasir.pembayaran",
+                            "manager.pembayaran",
+                        ].some((k) => effective.includes(k));
+                    }
                 }
             }
         }

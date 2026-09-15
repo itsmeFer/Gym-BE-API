@@ -221,11 +221,27 @@ export async function GET(request: Request) {
       });
     }
 
-    const serializedMemberships = memberships.map((m) => {
-      const plainMembership = m.get({ plain: true }) as unknown as Record<string, unknown>;
-      const plan = plainMembership.plan;
-      return serializeMembership(plainMembership, user, plan);
-    });
+    const now = new Date();
+    const todayOnly = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+    const serializedMemberships = await Promise.all(
+      memberships.map(async (m) => {
+        const plainMembership = m.get({ plain: true }) as unknown as Record<string, unknown>;
+        
+        // Auto-expire check: jika expiredAt sudah lewat dari hari ini dan status masih 'active', sinkronkan ke database
+        if (plainMembership.expiredAt && plainMembership.memberStatus === "active") {
+          const exp = new Date(plainMembership.expiredAt as string | number | Date);
+          const expOnly = new Date(exp.getFullYear(), exp.getMonth(), exp.getDate());
+          if (todayOnly > expOnly) {
+            plainMembership.memberStatus = "expired";
+            await m.update({ memberStatus: "expired" }).catch(() => {});
+          }
+        }
+
+        const plan = plainMembership.plan;
+        return serializeMembership(plainMembership, user, plan);
+      })
+    );
 
     return successResponse({
       message: "Paket membership user berhasil diambil",

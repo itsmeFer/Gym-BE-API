@@ -59,6 +59,14 @@ const usersToSeed = [
     password: 'password123',
     role: 'trainer',
     referral_code: 'TRAINER-PRIMA'
+  },
+  {
+    name: 'IT Super Admin',
+    email: 'it@primagym.com',
+    phone: '080000000008',
+    password: 'it123',
+    role: 'it',
+    referral_code: 'IT-PRIMA'
   }
 ];
 

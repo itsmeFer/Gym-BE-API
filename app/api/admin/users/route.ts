@@ -4,7 +4,7 @@ import { Op } from "sequelize";
 
 import { User } from "@/database/models";
 import { errorResponse, successResponse } from "@/lib/response";
-import { getAdminFromRequest } from "@/lib/admin-auth";
+import { requireFeature } from "@/lib/feature-permission";
 
 const STAFF_ROLES = [
   "admin",
@@ -105,9 +105,13 @@ function generateReferralCode(name: string) {
 
 export async function GET(request: NextRequest) {
   try {
-    const auth = await getAdminFromRequest(request);
+    const auth = await requireFeature(request, [
+      "admin.kelola_karyawan",
+      "admin.users",
+      "manager.users",
+    ]);
     if (!auth.success) {
-      return errorResponse(auth.message, 403);
+      return errorResponse(auth.message, auth.statusCode);
     }
 
     const users = (await User.findAll({
@@ -128,9 +132,13 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const auth = await getAdminFromRequest(request);
+    const auth = await requireFeature(request, [
+      "admin.kelola_karyawan",
+      "admin.users",
+      "manager.users",
+    ]);
     if (!auth.success) {
-      return errorResponse(auth.message, 403);
+      return errorResponse(auth.message, auth.statusCode);
     }
 
     const body = await request.json();

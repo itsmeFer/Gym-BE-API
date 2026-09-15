@@ -5,6 +5,7 @@ import { errorResponse, successResponse } from "@/lib/response";
 import { buildMembershipAgreementPdf } from "@/lib/pdf/membershipAgreementPdf";
 import { sendMembershipAgreementEmail } from "@/lib/mail/sendMembershipAgreementEmail";
 import { getTokenFromRequest, verifyToken } from "@/lib/auth";
+import { fetchUserPermissionKeys, resolveEffectivePermissions } from "@/lib/feature-permission";
 
 export const runtime = "nodejs";
 
@@ -232,11 +233,24 @@ export async function POST(
     }
 
     const adminRole = String(admin.get("role") ?? "").toLowerCase();
-    const allowedRoles = ["admin", "owner", "direktur", "manager", "kasir"];
+    const superRoles = ["it", "superadmin", "owner", "direktur"];
+    const allowedRoles = ["admin", "owner", "direktur", "manager", "kasir", ...superRoles];
 
-    if (!allowedRoles.includes(adminRole)) {
+    let hasAccess = allowedRoles.includes(adminRole);
+    if (!hasAccess) {
+      const perms = await fetchUserPermissionKeys(admin.id);
+      const effective = resolveEffectivePermissions(adminRole, perms);
+      hasAccess = [
+        "admin.kasir",
+        "kasir.verifikasi",
+        "kasir.pembayaran",
+        "manager.pembayaran",
+      ].some((k) => effective.includes(k));
+    }
+
+    if (!hasAccess) {
       return errorResponse(
-        "User yang memproses pembayaran harus role admin, owner, direktur, manager, atau kasir",
+        "User yang memproses pembayaran harus memiliki izin kasir atau role yang sesuai",
         403
       );
     }

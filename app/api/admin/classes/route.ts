@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { Op } from "sequelize";
 import { MembershipPlan, MembershipPlanSchedule, User } from "@/database/models";
 import { errorResponse, successResponse } from "@/lib/response";
-import { getTokenFromRequest, verifyToken } from "@/lib/auth";
+import { requireFeature } from "@/lib/feature-permission";
 
 import {
   initializeClassesFromPlans,
@@ -14,9 +14,13 @@ export const runtime = "nodejs";
 
 export async function GET(request: NextRequest) {
   try {
-    const token = getTokenFromRequest(request);
-    if (!token || !verifyToken(token)) {
-      return errorResponse("Autentikasi gagal. Silakan login kembali.", 401);
+    const auth = await requireFeature(
+      request,
+      ["admin.kelola_kelas"],
+      ["admin", "manager", "trainer", "kasir"]
+    );
+    if (!auth.success) {
+      return errorResponse(auth.message, auth.statusCode);
     }
 
     const classes = await initializeClassesFromPlans();
@@ -91,16 +95,13 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const token = getTokenFromRequest(request);
-    const userPayload = token ? verifyToken(token) : null;
-
-    if (!userPayload) {
-      return errorResponse("Autentikasi gagal. Silakan login kembali.", 401);
-    }
-
-    const allowedRoles = ["admin", "owner", "direktur", "manager"];
-    if (!allowedRoles.includes(userPayload.role.toLowerCase())) {
-      return errorResponse("Akses ditolak: Hanya admin dan manager yang berhak mengelola kelas", 403);
+    const auth = await requireFeature(
+      request,
+      ["admin.kelola_kelas"],
+      ["admin", "manager"]
+    );
+    if (!auth.success) {
+      return errorResponse(auth.message, auth.statusCode);
     }
 
     const body = await request.json();
@@ -189,16 +190,13 @@ export async function POST(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
-    const token = getTokenFromRequest(request);
-    const userPayload = token ? verifyToken(token) : null;
-
-    if (!userPayload) {
-      return errorResponse("Autentikasi gagal. Silakan login kembali.", 401);
-    }
-
-    const allowedRoles = ["admin", "owner", "direktur", "manager"];
-    if (!allowedRoles.includes(userPayload.role.toLowerCase())) {
-      return errorResponse("Akses ditolak: Hanya admin dan manager yang berhak menghapus kelas", 403);
+    const auth = await requireFeature(
+      request,
+      ["admin.kelola_kelas"],
+      ["admin", "manager"]
+    );
+    if (!auth.success) {
+      return errorResponse(auth.message, auth.statusCode);
     }
 
     const id = request.nextUrl.searchParams.get("id");

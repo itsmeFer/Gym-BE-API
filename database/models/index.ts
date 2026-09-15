@@ -7,6 +7,7 @@ import AttendanceSetting from "./AttendanceSetting";
 import { PtSession } from "./PtSession";
 import { PointHistory } from "./PointHistory";
 import MembershipPlanSchedule from "./MembershipPlanSchedule";
+import UserPermission from "./UserPermission";
 
 User.hasMany(Membership, {
   foreignKey: "userId",
@@ -100,6 +101,15 @@ PointHistory.belongsTo(User, {
   as: "relatedUser",
 });
 
+User.hasMany(UserPermission, {
+  foreignKey: "userId",
+  as: "permissions",
+});
+UserPermission.belongsTo(User, {
+  foreignKey: "userId",
+  as: "user",
+});
+
 export {
   User,
   Membership,
@@ -109,4 +119,5 @@ export {
   AttendanceSetting,
   PtSession,
   PointHistory,
+  UserPermission,
 };

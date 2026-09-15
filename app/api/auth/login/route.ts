@@ -1,4 +1,5 @@
 import { User } from "@/database/models";
+import { getEffectivePermissions } from "@/lib/feature-permission";
 import { errorResponse, successResponse } from "@/lib/response";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
@@ -37,8 +38,12 @@ type LoginUserData = {
   photo_url?: string | null;
 };
 
-function serializeLoginUser(userData: LoginUserData) {
+async function serializeLoginUser(userData: LoginUserData) {
   const role = String(userData.role ?? "customer").toLowerCase();
+  const effectivePermissions = await getEffectivePermissions(
+    role,
+    userData.id
+  );
 
   return {
     id: userData.id,
@@ -46,6 +51,7 @@ function serializeLoginUser(userData: LoginUserData) {
     phone: userData.phone,
     email: userData.email,
     role,
+    effectivePermissions,
 
     points: Number(userData.points ?? 0),
     maxPoints: Number(userData.maxPoints ?? userData.max_points ?? 100),
@@ -163,7 +169,7 @@ export async function POST(request: Request) {
       message: "Login berhasil",
       data: {
         token,
-        user: serializeLoginUser(userData),
+        user: await serializeLoginUser(userData),
       },
     });
   } catch (error) {

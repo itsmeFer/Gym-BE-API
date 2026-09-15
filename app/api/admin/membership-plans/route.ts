@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { MembershipPlan } from "@/database/models";
 import { errorResponse, successResponse } from "@/lib/response";
-import { getTokenFromRequest, verifyToken } from "@/lib/auth";
+import { requireFeature } from "@/lib/feature-permission";
 
 export const runtime = "nodejs";
 
@@ -40,16 +40,13 @@ function normalizeBenefits(value: unknown): string[] {
 
 export async function GET(request: NextRequest) {
   try {
-    const token = getTokenFromRequest(request);
-    const userPayload = token ? verifyToken(token) : null;
-
-    if (!userPayload) {
-      return errorResponse("Autentikasi gagal. Silakan login kembali.", 401);
-    }
-
-    const allowedRoles = ["admin", "kasir", "owner", "direktur", "manager"];
-    if (!allowedRoles.includes(userPayload.role.toLowerCase())) {
-      return errorResponse("Akses ditolak: Anda tidak memiliki akses ke paket membership", 403);
+    const auth = await requireFeature(
+      request,
+      ["admin.membership", "manager.membership"],
+      ["admin", "kasir", "manager"]
+    );
+    if (!auth.success) {
+      return errorResponse(auth.message, auth.statusCode);
     }
 
     const plans = await MembershipPlan.findAll({
@@ -68,16 +65,13 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const token = getTokenFromRequest(request);
-    const userPayload = token ? verifyToken(token) : null;
-
-    if (!userPayload) {
-      return errorResponse("Autentikasi gagal. Silakan login kembali.", 401);
-    }
-
-    const allowedRoles = ["admin", "manager", "owner", "direktur"];
-    if (!allowedRoles.includes(userPayload.role.toLowerCase())) {
-      return errorResponse("Akses ditolak: Hanya admin atau manager yang boleh membuat paket membership", 403);
+    const auth = await requireFeature(
+      request,
+      ["admin.membership", "manager.membership"],
+      ["admin", "manager"]
+    );
+    if (!auth.success) {
+      return errorResponse(auth.message, auth.statusCode);
     }
 
     const body = await request.json();

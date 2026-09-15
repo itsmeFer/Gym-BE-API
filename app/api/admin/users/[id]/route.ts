@@ -4,7 +4,7 @@ import { Op } from "sequelize";
 
 import { User } from "@/database/models";
 import { errorResponse, successResponse } from "@/lib/response";
-import { getAdminFromRequest } from "@/lib/admin-auth";
+import { requireFeature } from "@/lib/feature-permission";
 
 const STAFF_ROLES = [
   "admin",
@@ -101,9 +101,13 @@ export async function GET(
   context: { params: Promise<{ id: string }> },
 ) {
   try {
-    const auth = await getAdminFromRequest(request);
+    const auth = await requireFeature(request, [
+      "admin.kelola_karyawan",
+      "admin.users",
+      "manager.users",
+    ]);
     if (!auth.success) {
-      return errorResponse(auth.message, 403);
+      return errorResponse(auth.message, auth.statusCode);
     }
 
     const { id } = await context.params;
@@ -129,9 +133,13 @@ export async function PUT(
   context: { params: Promise<{ id: string }> },
 ) {
   try {
-    const auth = await getAdminFromRequest(request);
+    const auth = await requireFeature(request, [
+      "admin.kelola_karyawan",
+      "admin.users",
+      "manager.users",
+    ]);
     if (!auth.success) {
-      return errorResponse(auth.message, 403);
+      return errorResponse(auth.message, auth.statusCode);
     }
 
     const { id } = await context.params;
@@ -258,14 +266,17 @@ export async function DELETE(
   context: { params: Promise<{ id: string }> },
 ) {
   try {
-    const auth = await getAdminFromRequest(request);
-    if (!auth.success || !auth.user) {
-      return errorResponse(auth.message || "Akses tidak diizinkan", 403);
+    const auth = await requireFeature(request, [
+      "admin.kelola_karyawan",
+      "admin.users",
+      "manager.users",
+    ]);
+    if (!auth.success) {
+      return errorResponse(auth.message, auth.statusCode);
     }
+    const authUser = auth.user;
 
     const { id } = await context.params;
-    const authUser = auth.user.get({ plain: true }) as { id: number; role?: string };
-
     if (Number(authUser.id) === Number(id)) {
       return errorResponse(
         "Tidak dapat menghapus akun Anda sendiri yang sedang aktif digunakan",

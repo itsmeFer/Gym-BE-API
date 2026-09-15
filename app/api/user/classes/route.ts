@@ -44,7 +44,7 @@ export async function GET(request: NextRequest) {
       return errorResponse("User tidak ditemukan", 404);
     }
 
-    // 1. Ambil semua membership user yang PAID & tidak REVOKED
+    // 1. Ambil semua membership user yang PAID
     const memberships = await Membership.findAll({
       where: {
         userId,
@@ -62,35 +62,41 @@ export async function GET(request: NextRequest) {
       order: [["id", "DESC"]],
     });
 
-    // Validasi keaktifan tanggal jika sudah diset
     const now = new Date();
     const todayOnly = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
-    const activeMemberships = memberships.filter((m) => {
+    // Filter ketat: Hanya membership yang belum expired dan belum dicabut
+    const activeMemberships = [];
+    for (const m of memberships) {
       const plain = m.get ? m.get({ plain: true }) : m;
-      if (plain.memberStatus === "revoked") return false;
-
-      if (plain.startedAt && plain.expiredAt) {
-        const start = new Date(plain.startedAt);
-        const exp = new Date(plain.expiredAt);
-
-        const startOnly = new Date(
-          start.getFullYear(),
-          start.getMonth(),
-          start.getDate()
-        );
-        const expOnly = new Date(
-          exp.getFullYear(),
-          exp.getMonth(),
-          exp.getDate()
-        );
-
-        if (todayOnly < startOnly) return false; // belum mulai
-        if (todayOnly > expOnly) return false; // sudah expired
+      if (plain.memberStatus === "revoked" || plain.memberStatus === "expired") {
+        continue;
       }
 
-      return true;
-    });
+      // Cek expiry date: jika expiredAt sudah lewat dari hari ini -> EXPIRED
+      if (plain.expiredAt) {
+        const exp = new Date(plain.expiredAt);
+        const expOnly = new Date(exp.getFullYear(), exp.getMonth(), exp.getDate());
+        if (todayOnly > expOnly) {
+          // Auto-sinkron ke database agar status tidak gantung
+          await m.update({ memberStatus: "expired" }).catch(() => {});
+          continue;
+        }
+      }
+
+      // Cek start date jika sudah ditentukan: jika belum mulai di masa depan, skip
+      if (plain.startedAt) {
+        const start = new Date(plain.startedAt);
+        const startOnly = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+        if (todayOnly < startOnly) {
+          continue;
+        }
+      }
+
+      // Jika plain.startedAt == null (sudah beli paket tapi belum atur jadwal):
+      // Tetap diizinkan melihat daftar jadwal kelas
+      activeMemberships.push(m);
+    }
 
     if (activeMemberships.length === 0) {
       return successResponse({

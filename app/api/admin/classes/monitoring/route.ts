@@ -9,7 +9,7 @@ import {
 } from "@/database/models";
 import { errorResponse, successResponse } from "@/lib/response";
 import { initializeClassesFromPlans } from "@/lib/classes-store";
-import { getTokenFromRequest, verifyToken } from "@/lib/auth";
+import { requireFeature } from "@/lib/feature-permission";
 
 export const runtime = "nodejs";
 
@@ -24,16 +24,13 @@ function getJakartaDateString() {
 
 export async function GET(request: NextRequest) {
   try {
-    const token = getTokenFromRequest(request);
-    const userPayload = token ? verifyToken(token) : null;
-
-    if (!userPayload) {
-      return errorResponse("Autentikasi gagal. Silakan login kembali.", 401);
-    }
-
-    const allowedRoles = ["admin", "owner", "direktur", "manager", "trainer"];
-    if (!allowedRoles.includes(userPayload.role.toLowerCase())) {
-      return errorResponse("Akses ditolak: Anda tidak memiliki akses ke monitoring kelas", 403);
+    const auth = await requireFeature(
+      request,
+      ["admin.kelola_kelas", "trainer.jadwal"],
+      ["admin", "manager", "trainer"]
+    );
+    if (!auth.success) {
+      return errorResponse(auth.message, auth.statusCode);
     }
 
     const { searchParams } = request.nextUrl;

@@ -322,7 +322,7 @@ export async function POST(request: NextRequest) {
     // Key Security Check: Members must have an active paid membership
     const isEmployee = ["trainer", "karyawan", "admin", "manager"].includes(role);
     if (!isEmployee) {
-      const activeMem = await Membership.findOne({
+      const allCustomerMems = await Membership.findAll({
         where: {
           userId,
           paymentStatus: "paid",
@@ -330,9 +330,72 @@ export async function POST(request: NextRequest) {
             [Op.in]: ["active", "pending"],
           },
         },
+        order: [["id", "DESC"]],
       });
 
+      const now = new Date();
+      const todayOnly = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+      let activeMem: any = null;
+      let hasExpired = false;
+      let hasNotStarted = false;
+      let hasAwaitingSchedule = false;
+
+      for (const m of allCustomerMems) {
+        const plain = m.get ? m.get({ plain: true }) : m;
+        if (plain.memberStatus === "revoked" || plain.memberStatus === "expired") {
+          continue;
+        }
+
+        // Cek expiry date
+        if (plain.expiredAt) {
+          const exp = new Date(plain.expiredAt);
+          const expOnly = new Date(exp.getFullYear(), exp.getMonth(), exp.getDate());
+          if (todayOnly > expOnly) {
+            hasExpired = true;
+            await m.update({ memberStatus: "expired" }).catch(() => {});
+            continue;
+          }
+        }
+
+        // Cek apakah tanggal mulai sudah diatur
+        if (!plain.startedAt) {
+          hasAwaitingSchedule = true;
+          continue;
+        }
+
+        // Cek apakah tanggal mulai sudah berjalan
+        const start = new Date(plain.startedAt);
+        const startOnly = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+        if (todayOnly < startOnly) {
+          hasNotStarted = true;
+          continue;
+        }
+
+        // Membership ini valid dan aktif hari ini!
+        activeMem = m;
+        break;
+      }
+
       if (!activeMem) {
+        if (hasExpired && !hasAwaitingSchedule && !hasNotStarted) {
+          return errorResponse(
+            "Check-in ditolak! Masa aktif paket membership kamu sudah habis. Silakan perpanjang paket terlebih dahulu.",
+            403
+          );
+        }
+        if (hasAwaitingSchedule) {
+          return errorResponse(
+            "Check-in ditolak! Kamu belum menentukan tanggal mulai jadwal membership. Silakan atur jadwal di menu Member.",
+            400
+          );
+        }
+        if (hasNotStarted) {
+          return errorResponse(
+            "Check-in ditolak! Paket membership kamu belum mulai aktif.",
+            400
+          );
+        }
         return errorResponse(
           "Kamu belum memiliki paket membership aktif yang sudah dibayar.",
           403

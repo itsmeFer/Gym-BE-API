@@ -20,17 +20,17 @@ export async function POST(request: Request) {
       return errorResponse("Kode verifikasi harus 6 digit angka", 400);
     }
 
-    const user = await User.findOne({
-      where: {
-        email,
-      },
-    });
+    // Cari user berdasarkan pendingEmail (flow ganti email profil) atau email biasa (flow register)
+    const user =
+      (await User.findOne({ where: { pendingEmail: email } })) ??
+      (await User.findOne({ where: { email } }));
 
     if (!user) {
       return errorResponse("User tidak ditemukan", 404);
     }
 
-    if (user.emailVerifiedAt) {
+    // Jika sudah verified DAN tidak ada pendingEmail, berarti tidak perlu verifikasi lagi
+    if (user.emailVerifiedAt && !user.pendingEmail) {
       const role = String(user.role ?? "customer").toLowerCase();
       const token = jwt.sign(
         {
@@ -92,6 +92,12 @@ export async function POST(request: Request) {
     user.emailVerificationCodeHash = null;
     user.emailVerificationExpiresAt = null;
     user.emailVerificationLastSentAt = null;
+
+    // Jika ada pendingEmail (dari flow ganti email profil), selesaikan pergantian email
+    if (user.pendingEmail) {
+      user.email = user.pendingEmail;
+      user.pendingEmail = null;
+    }
 
     await user.save();
 

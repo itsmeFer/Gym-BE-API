@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { User } from "@/database/models";
+import { getEffectivePermissions } from "@/lib/feature-permission";
 import { successResponse, errorResponse } from "@/lib/response";
 import { getTokenFromRequest, verifyToken } from "@/lib/auth";
 
@@ -24,7 +25,7 @@ export async function GET(request: NextRequest) {
       return errorResponse("Unauthorized: Token tidak valid atau kedaluwarsa", 401);
     }
 
-    const allowedRoles = ["admin", "owner", "direktur", "manager", "kasir"];
+    const allowedRoles = ["admin", "owner", "direktur", "manager", "kasir", "it", "superadmin"];
     const requesterRole = String(decoded.role ?? "").toLowerCase();
 
     const searchParams = request.nextUrl.searchParams;
@@ -57,6 +58,10 @@ export async function GET(request: NextRequest) {
     }
 
     const userData = user.get({ plain: true });
+    const effectivePermissions = await getEffectivePermissions(
+      String(userData.role ?? "").toLowerCase(),
+      userData.id
+    );
 
     return successResponse({
       message: "Data user berhasil diambil",
@@ -66,6 +71,7 @@ export async function GET(request: NextRequest) {
         email: userData.email,
         phone: userData.phone,
         role: String(userData.role ?? "").toLowerCase(),
+        effectivePermissions,
         points: Number(userData.points ?? 0),
         maxPoints: Number(userData.maxPoints ?? 100),
         isActive: Boolean(userData.isActive),

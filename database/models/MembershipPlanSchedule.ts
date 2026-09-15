@@ -39,20 +39,20 @@ export class MembershipPlanSchedule
   >
   implements MembershipPlanScheduleAttributes
 {
-  public id!: number;
-  public planId!: number;
-  public trainerId!: number | null;
-  public title!: string;
-  public category!: string;
-  public startTime!: string;
-  public endTime!: string;
-  public sessionLabel!: string;
-  public room!: string;
-  public quota!: number;
-  public isActive!: boolean;
+  declare id: number;
+  declare planId: number;
+  declare trainerId: number | null;
+  declare title: string;
+  declare category: string;
+  declare startTime: string;
+  declare endTime: string;
+  declare sessionLabel: string;
+  declare room: string;
+  declare quota: number;
+  declare isActive: boolean;
 
-  public readonly createdAt!: Date;
-  public readonly updatedAt!: Date;
+  declare readonly createdAt: Date;
+  declare readonly updatedAt: Date;
 }
 
 MembershipPlanSchedule.init(

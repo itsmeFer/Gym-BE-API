@@ -50,24 +50,24 @@ class MembershipPlan
   extends Model<MembershipPlanAttributes, MembershipPlanCreationAttributes>
   implements MembershipPlanAttributes
 {
-  public id!: number;
-  public programName!: string;
-  public customerCategory!: MembershipCustomerCategory;
-  public packageCode!: string;
-  public name!: string;
-  public description!: string | null;
-  public imageUrl!: string | null;
-  public price!: number;
-  public durationDays!: number;
-  public discountPercent!: number;
-  public personalTrainerSessions!: number;
-  public pilatesSessions!: number;
-  public freeMembershipDays!: number;
-  public benefits!: string[];
-  public isActive!: boolean;
+  declare id: number;
+  declare programName: string;
+  declare customerCategory: MembershipCustomerCategory;
+  declare packageCode: string;
+  declare name: string;
+  declare description: string | null;
+  declare imageUrl: string | null;
+  declare price: number;
+  declare durationDays: number;
+  declare discountPercent: number;
+  declare personalTrainerSessions: number;
+  declare pilatesSessions: number;
+  declare freeMembershipDays: number;
+  declare benefits: string[];
+  declare isActive: boolean;
 
-  public readonly createdAt!: Date;
-  public readonly updatedAt!: Date;
+  declare readonly createdAt: Date;
+  declare readonly updatedAt: Date;
 }
 
 MembershipPlan.init(

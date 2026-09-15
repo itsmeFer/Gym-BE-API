@@ -10,6 +10,7 @@ export type UserRole =
   | "trainer"
   | "sales"
   | "kasir"
+  | "it"
   | "customer";
 
 export interface UserAttributes {
@@ -31,6 +32,7 @@ export interface UserAttributes {
   emailVerificationLastSentAt: Date | null;
 
   photoUrl: string | null;
+  pendingEmail: string | null;
 
   createdAt?: Date;
   updatedAt?: Date;
@@ -51,6 +53,7 @@ export type UserCreationAttributes = Optional<
   | "emailVerificationExpiresAt"
   | "emailVerificationLastSentAt"
   | "photoUrl"
+  | "pendingEmail"
   | "createdAt"
   | "updatedAt"
 >;
@@ -77,6 +80,7 @@ export class User
   declare emailVerificationExpiresAt: Date | null;
   declare emailVerificationLastSentAt: Date | null;
   declare photoUrl: string | null;
+  declare pendingEmail: string | null;
 
   declare readonly createdAt: Date;
   declare readonly updatedAt: Date;
@@ -125,6 +129,7 @@ User.init(
         "trainer",
         "sales",
         "kasir",
+        "it",
         "customer"
       ),
       allowNull: false,
@@ -198,6 +203,12 @@ User.init(
       type: DataTypes.STRING(255),
       allowNull: true,
       field: "photo_url",
+    },
+
+    pendingEmail: {
+      type: DataTypes.STRING(150),
+      allowNull: true,
+      field: "pending_email",
     },
   },
   {

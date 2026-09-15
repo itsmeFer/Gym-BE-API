@@ -1,5 +1,6 @@
 import { User } from "@/database/models";
 import { getTokenFromRequest, verifyToken } from "@/lib/auth";
+import { getEffectivePermissions } from "@/lib/feature-permission";
 import { errorResponse, successResponse } from "@/lib/response";
 
 export const runtime = "nodejs";
@@ -27,13 +28,18 @@ type MeUserData = {
   photo_url?: string | null;
 };
 
-function serializeMeUser(userData: MeUserData) {
+async function serializeMeUser(user: User) {
+  const userData = user.get({ plain: true }) as MeUserData;
+  const role = String(userData.role ?? "customer").toLowerCase();
+  const effectivePermissions = await getEffectivePermissions(role, userData.id);
+
   return {
     id: userData.id,
     name: userData.name,
     phone: userData.phone,
     email: userData.email,
-    role: String(userData.role ?? "customer").toLowerCase(),
+    role: role,
+    effectivePermissions,
     points: Number(userData.points ?? 0),
     maxPoints: Number(userData.maxPoints ?? userData.max_points ?? 100),
     referralCode: userData.referralCode ?? userData.referral_code ?? "",
@@ -61,7 +67,7 @@ export async function GET(request: Request) {
       return errorResponse("Akun kamu belum aktif atau sedang dinonaktifkan", 403);
     }
 
-    return successResponse({ message: "Data user berhasil diambil", data: serializeMeUser(userData) });
+    return successResponse({ message: "Data user berhasil diambil", data: await serializeMeUser(user) });
   } catch (error) {
     console.error("GET ME ERROR:", error);
     return errorResponse("Gagal mengambil data user", 500, error);
@@ -111,8 +117,7 @@ export async function PUT(request: Request) {
 
     await user.save();
 
-    const updated = user.get({ plain: true }) as MeUserData;
-    return successResponse({ message: "Profil berhasil diperbarui", data: serializeMeUser(updated) });
+    return successResponse({ message: "Profil berhasil diperbarui", data: await serializeMeUser(user) });
   } catch (error) {
     console.error("PUT ME ERROR:", error);
     return errorResponse("Gagal memperbarui profil", 500, error);

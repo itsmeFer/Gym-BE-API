@@ -3,7 +3,7 @@ import { NextRequest } from "next/server";
 import { sequelize } from "@/database/connection";
 import { Membership, MembershipPlan, User } from "@/database/models";
 import { errorResponse, successResponse } from "@/lib/response";
-import { getTokenFromRequest, verifyToken } from "@/lib/auth";
+import { requireFeature } from "@/lib/feature-permission";
 
 export const runtime = "nodejs";
 
@@ -89,22 +89,16 @@ export async function POST(
       return errorResponse("ID riwayat tidak valid", 400);
     }
 
-    const token = getTokenFromRequest(request);
-    const userPayload = token ? verifyToken(token) : null;
-
-    if (!userPayload) {
-      return errorResponse("Autentikasi gagal. Silakan login kembali.", 401);
+    const auth = await requireFeature(
+      request,
+      ["admin.kasir", "kasir.verifikasi", "kasir.pembayaran", "manager.pembayaran"],
+      ["admin", "kasir", "manager"]
+    );
+    if (!auth.success) {
+      return errorResponse(auth.message, auth.statusCode);
     }
 
-    const allowedRoles = ["admin", "kasir", "owner", "direktur", "manager"];
-    if (!allowedRoles.includes(userPayload.role.toLowerCase())) {
-      return errorResponse(
-        "User yang memproses harus role admin, kasir, manager, owner, atau direktur",
-        403
-      );
-    }
-
-    const resolvedAdminId = userPayload.id;
+    const resolvedAdminId = auth.user.id;
 
     const body = await request.json().catch(() => ({}));
 
