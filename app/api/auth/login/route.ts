@@ -1,5 +1,5 @@
 import { User } from "@/database/models";
-import { getEffectivePermissions } from "@/lib/feature-permission";
+import { getEffectiveMethodMap, getEffectivePermissions } from "@/lib/feature-permission";
 import { errorResponse, successResponse } from "@/lib/response";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
@@ -44,6 +44,7 @@ async function serializeLoginUser(userData: LoginUserData) {
     role,
     userData.id
   );
+  const permissionMethods = await getEffectiveMethodMap(role, userData.id);
 
   return {
     id: userData.id,
@@ -52,6 +53,7 @@ async function serializeLoginUser(userData: LoginUserData) {
     email: userData.email,
     role,
     effectivePermissions,
+    permissionMethods,
 
     points: Number(userData.points ?? 0),
     maxPoints: Number(userData.maxPoints ?? userData.max_points ?? 100),
