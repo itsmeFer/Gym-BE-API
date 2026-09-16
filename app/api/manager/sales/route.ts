@@ -3,6 +3,7 @@ import { Op } from "sequelize";
 
 import { Membership, MembershipPlan, User } from "@/database/models";
 import { errorResponse, successResponse } from "@/lib/response";
+import { requireFeature } from "@/lib/feature-permission";
 
 function normalize(value: unknown) {
   return String(value ?? "").trim().toLowerCase();
@@ -502,6 +503,11 @@ function buildSummary(salesPerformance: any[], memberships: any[]) {
 
 export async function GET(request: NextRequest) {
   try {
+
+    const auth = await requireFeature(request, "manager.laporan", ["manager"]);
+    if (!auth.success) {
+      return errorResponse(auth.message, auth.statusCode);
+    }
     const searchParams = request.nextUrl.searchParams;
 
     const startDate = parseDateOrNull(searchParams.get("startDate"));

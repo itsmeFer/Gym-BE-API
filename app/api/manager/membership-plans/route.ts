@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { MembershipPlan } from "@/database/models";
 import { errorResponse, successResponse } from "@/lib/response";
+import { requireFeature } from "@/lib/feature-permission";
 
 const CUSTOMER_CATEGORIES = ["prima_grup", "non_prima_grup"] as const;
 
@@ -27,8 +28,13 @@ function normalizeCustomerCategory(value: unknown): CustomerCategory | null {
   return null;
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+
+    const auth = await requireFeature(request, "manager.membership", ["manager"]);
+    if (!auth.success) {
+      return errorResponse(auth.message, auth.statusCode);
+    }
     const plans = await MembershipPlan.findAll({
       order: [["createdAt", "DESC"]],
     });

@@ -1,5 +1,6 @@
 import { MembershipPlan } from "@/database/models";
 import { errorResponse, successResponse } from "@/lib/response";
+import { requireFeature } from "@/lib/feature-permission";
 
 function serializePlan(plan: any) {
   const data = plan.get ? plan.get({ plain: true }) : plan;
@@ -25,8 +26,13 @@ function serializePlan(plan: any) {
   };
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
+
+    const auth = await requireFeature(request, "sales.membership", ["sales"]);
+    if (!auth.success) {
+      return errorResponse(auth.message, auth.statusCode);
+    }
     const plans = await MembershipPlan.findAll({
       where: {
         isActive: true,

@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 
 import { Membership, MembershipPlan, User } from "@/database/models";
 import { errorResponse, successResponse } from "@/lib/response";
+import { requireFeature } from "@/lib/feature-permission";
 
 function toNumber(value: unknown, defaultValue = 0) {
   const number = Number(value);
@@ -77,6 +78,11 @@ export async function GET(
   context: { params: Promise<{ id: string }> }
 ) {
   try {
+
+    const auth = await requireFeature(request, "admin.kasir", ["admin"]);
+    if (!auth.success) {
+      return errorResponse(auth.message, auth.statusCode);
+    }
     const { id } = await context.params;
     const paymentId = toNumber(id, 0);
 

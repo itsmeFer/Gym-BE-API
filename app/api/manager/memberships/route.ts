@@ -1,5 +1,6 @@
 import { Membership, User, MembershipPlan } from "@/database/models";
 import { errorResponse, successResponse } from "@/lib/response";
+import { requireFeature } from "@/lib/feature-permission";
 
 function normalizeStatus(value: unknown) {
   return String(value ?? "").trim().toLowerCase();
@@ -21,8 +22,13 @@ function toNumber(value: unknown) {
   return Number.isFinite(number) ? number : 0;
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
+
+    const auth = await requireFeature(request, "manager.member", ["manager"]);
+    if (!auth.success) {
+      return errorResponse(auth.message, auth.statusCode);
+    }
     const memberships = await Membership.findAll({
       include: [
         {

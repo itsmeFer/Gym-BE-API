@@ -4,6 +4,7 @@ import { Op } from "sequelize";
 
 import { User } from "@/database/models";
 import { errorResponse, successResponse } from "@/lib/response";
+import { requireFeature } from "@/lib/feature-permission";
 
 const MANAGER_ALLOWED_ROLES = [
   "admin",
@@ -108,8 +109,13 @@ function generateReferralCode(name: string) {
  * Ambil semua user semua role:
  * admin, direktur, manager, karyawan, trainer, sales, customer.
  */
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+
+    const auth = await requireFeature(request, "manager.users", ["manager"]);
+    if (!auth.success) {
+      return errorResponse(auth.message, auth.statusCode);
+    }
     const users = (await User.findAll({
       where: {
         role: {

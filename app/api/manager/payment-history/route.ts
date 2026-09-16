@@ -3,6 +3,7 @@ import { Op } from "sequelize";
 
 import { Membership, MembershipPlan, User } from "@/database/models";
 import { errorResponse, successResponse } from "@/lib/response";
+import { requireFeature } from "@/lib/feature-permission";
 
 function normalizeStatus(value: unknown) {
   return String(value ?? "").trim().toLowerCase();
@@ -226,6 +227,11 @@ function buildDashboard(histories: any[]) {
 
 export async function GET(request: NextRequest) {
   try {
+
+    const auth = await requireFeature(request, "manager.pembayaran", ["manager"]);
+    if (!auth.success) {
+      return errorResponse(auth.message, auth.statusCode);
+    }
     const searchParams = request.nextUrl.searchParams;
 
     const paymentStatus = normalizeStatus(searchParams.get("paymentStatus"));

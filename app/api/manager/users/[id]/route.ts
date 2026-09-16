@@ -4,6 +4,7 @@ import { Op } from "sequelize";
 
 import { User } from "@/database/models";
 import { errorResponse, successResponse } from "@/lib/response";
+import { requireFeature } from "@/lib/feature-permission";
 
 const MANAGER_ALLOWED_ROLES = [
   "admin",
@@ -113,6 +114,11 @@ export async function GET(
   context: { params: Promise<{ id: string }> },
 ) {
   try {
+
+    const auth = await requireFeature(request, "manager.users", ["manager"]);
+    if (!auth.success) {
+      return errorResponse(auth.message, auth.statusCode);
+    }
     const { id } = await context.params;
 
     const user = await findManagerAllowedUser(id);

@@ -1,6 +1,9 @@
 import { User } from "@/database/models";
 import { getTokenFromRequest, verifyToken } from "@/lib/auth";
-import { getEffectivePermissions } from "@/lib/feature-permission";
+import {
+  getEffectiveMethodMap,
+  getEffectivePermissions,
+} from "@/lib/feature-permission";
 import { errorResponse, successResponse } from "@/lib/response";
 
 export const runtime = "nodejs";
@@ -32,6 +35,7 @@ async function serializeMeUser(user: User) {
   const userData = user.get({ plain: true }) as MeUserData;
   const role = String(userData.role ?? "customer").toLowerCase();
   const effectivePermissions = await getEffectivePermissions(role, userData.id);
+  const permissionMethods = await getEffectiveMethodMap(role, userData.id);
 
   return {
     id: userData.id,
@@ -40,6 +44,7 @@ async function serializeMeUser(user: User) {
     email: userData.email,
     role: role,
     effectivePermissions,
+    permissionMethods,
     points: Number(userData.points ?? 0),
     maxPoints: Number(userData.maxPoints ?? userData.max_points ?? 100),
     referralCode: userData.referralCode ?? userData.referral_code ?? "",

@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { Op } from "sequelize";
 import { Attendance, AttendanceSetting } from "@/database/models";
 import { errorResponse, successResponse } from "@/lib/response";
+import { requireFeature } from "@/lib/feature-permission";
 
 type AttendanceSettingRaw = {
   id: number;
@@ -321,6 +322,11 @@ function makeSummary(attendances: any[]) {
 
 export async function GET(request: NextRequest) {
   try {
+
+    const auth = await requireFeature(request, "manager.absensi", ["manager"]);
+    if (!auth.success) {
+      return errorResponse(auth.message, auth.statusCode);
+    }
     const searchParams = request.nextUrl.searchParams;
 
     const userId = toNumberOrNull(searchParams.get("userId"));

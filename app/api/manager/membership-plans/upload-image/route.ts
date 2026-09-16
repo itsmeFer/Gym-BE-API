@@ -3,11 +3,17 @@ import { promises as fs } from "fs";
 import path from "path";
 import { randomUUID } from "crypto";
 import { errorResponse, successResponse } from "@/lib/response";
+import { requireFeature } from "@/lib/feature-permission";
 
 export const runtime = "nodejs";
 
 export async function POST(request: NextRequest) {
   try {
+
+    const auth = await requireFeature(request, "manager.membership", ["manager"]);
+    if (!auth.success) {
+      return errorResponse(auth.message, auth.statusCode);
+    }
     const formData = await request.formData();
     const file = formData.get("file");
 

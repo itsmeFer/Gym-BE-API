@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { MembershipPlan } from "@/database/models";
 import { errorResponse, successResponse } from "@/lib/response";
+import { requireFeature } from "@/lib/feature-permission";
 
 const CUSTOMER_CATEGORIES = ["prima_grup", "non_prima_grup"] as const;
 
@@ -36,6 +37,11 @@ export async function GET(
   context: { params: Promise<{ id: string }> }
 ) {
   try {
+
+    const auth = await requireFeature(request, "manager.membership", ["manager"]);
+    if (!auth.success) {
+      return errorResponse(auth.message, auth.statusCode);
+    }
     const { id } = await context.params;
 
     const plan = await MembershipPlan.findByPk(id);

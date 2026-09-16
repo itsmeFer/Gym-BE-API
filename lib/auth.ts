@@ -21,11 +21,13 @@ export function getTokenFromRequest(request: Request) {
 }
 
 export function verifyToken(token: string): JwtUserPayload | null {
+  const secret = process.env.JWT_SECRET;
+  if (!secret) {
+    console.error("FATAL: JWT_SECRET tidak di-set. Token tidak bisa diverifikasi.");
+    return null;
+  }
   try {
-    return jwt.verify(
-      token,
-      process.env.JWT_SECRET || "default_secret"
-    ) as JwtUserPayload;
+    return jwt.verify(token, secret) as JwtUserPayload;
   } catch {
     return null;
   }

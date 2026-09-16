@@ -212,3 +212,35 @@ export async function getEffectivePermissions(
   const custom = await fetchUserPermissionKeys(userId);
   return resolveEffectivePermissions(role, custom);
 }
+
+/**
+ * Map fitur-efektif → methods (CRUD) untuk UI gating.
+ * Default role = full 'CRUD'; custom pivot membatasi, termasuk melalui alias.
+ */
+export async function getEffectiveMethodMap(
+  role: string,
+  userId: number
+): Promise<Record<string, string>> {
+  const roleKey = role?.toLowerCase();
+  const defaults = ROLE_DEFAULT_FEATURES[roleKey] ?? [];
+  const entries = await fetchUserPermissionEntries(userId);
+  const effective = resolveEffectivePermissions(
+    roleKey,
+    entries.map((e) => e.featureKey)
+  );
+
+  const map: Record<string, string> = {};
+  for (const key of effective) {
+    if (defaults.includes(key)) {
+      map[key] = "CRUD";
+      continue;
+    }
+    const entry = entries.find((e) =>
+      e.featureKey === key
+        ? true
+        : (FEATURE_ALIASES[e.featureKey] ?? []).includes(key)
+    );
+    map[key] = entry?.methods ?? "CRUD";
+  }
+  return map;
+}

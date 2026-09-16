@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { Attendance, AttendanceSetting } from "@/database/models";
 import { errorResponse, successResponse } from "@/lib/response";
+import { requireFeature } from "@/lib/feature-permission";
 
 type AttendanceSettingRaw = {
   id: number;
@@ -291,6 +292,11 @@ export async function GET(
   context: { params: Promise<{ id: string }> }
 ) {
   try {
+
+    const auth = await requireFeature(request, "manager.absensi", ["manager"]);
+    if (!auth.success) {
+      return errorResponse(auth.message, auth.statusCode);
+    }
     const { id } = await context.params;
 
     const attendance = await Attendance.findByPk(id);

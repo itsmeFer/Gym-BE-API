@@ -1,5 +1,7 @@
 import { getTokenFromRequest, verifyToken, type JwtUserPayload } from "./auth";
 
+import { User } from "@/database/models";
+
 export type AuthResult =
   | { success: true; user: JwtUserPayload }
   | { success: false; message: string; statusCode: number };
@@ -23,7 +25,31 @@ export async function requireAuth(request: Request): Promise<AuthResult> {
     };
   }
 
-  return { success: true, user: payload };
+  const dbUser = await User.findByPk(payload.id);
+  if (!dbUser) {
+    return {
+      success: false,
+      message: "Akun tidak ditemukan.",
+      statusCode: 401,
+    };
+  }
+
+  const userData = dbUser.get({ plain: true }) as { role: string; isActive: boolean };
+
+  if (userData.isActive === false) {
+    return {
+      success: false,
+      message: "Akun kamu tidak aktif.",
+      statusCode: 403,
+    };
+  }
+
+  const freshUser: JwtUserPayload = {
+    ...payload,
+    role: String(userData.role ?? payload.role).toLowerCase(),
+  };
+
+  return { success: true, user: freshUser };
 }
 
 export async function requireRole(

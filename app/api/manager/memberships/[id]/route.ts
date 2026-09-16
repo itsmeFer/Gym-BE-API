@@ -3,12 +3,18 @@ import { Op } from "sequelize";
 
 import { Membership, User, MembershipPlan } from "@/database/models";
 import { errorResponse, successResponse } from "@/lib/response";
+import { requireFeature } from "@/lib/feature-permission";
 
 export async function GET(
   request: NextRequest,
   context: { params: Promise<{ id: string }> },
 ) {
   try {
+
+    const auth = await requireFeature(request, "manager.member", ["manager"]);
+    if (!auth.success) {
+      return errorResponse(auth.message, auth.statusCode);
+    }
     const { id } = await context.params;
 
     const membership = await Membership.findOne({

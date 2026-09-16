@@ -2,6 +2,7 @@ import { User, Membership } from "@/database/models";
 import { errorResponse, successResponse } from "@/lib/response";
 
 import { Op } from "sequelize";
+import { requireFeature } from "@/lib/feature-permission";
 
 function serializeCustomer(user: any) {
   const data = user.get ? user.get({ plain: true }) : user;
@@ -24,8 +25,13 @@ function serializeCustomer(user: any) {
   };
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
+
+    const auth = await requireFeature(request, "sales.prospek", ["sales"]);
+    if (!auth.success) {
+      return errorResponse(auth.message, auth.statusCode);
+    }
     const customers = await User.findAll({
       where: {
         role: "customer",

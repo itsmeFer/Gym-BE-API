@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 
 import { Attendance, AttendanceSetting, User } from "@/database/models";
 import { errorResponse, successResponse } from "@/lib/response";
+import { requireFeature } from "@/lib/feature-permission";
 
 type AttendanceSettingRaw = {
   id: number;
@@ -154,6 +155,11 @@ async function resolveCheckInResult(role: string, checkIn: string) {
 
 export async function POST(request: NextRequest) {
   try {
+
+    const auth = await requireFeature(request, "manager.absensi", ["manager"]);
+    if (!auth.success) {
+      return errorResponse(auth.message, auth.statusCode);
+    }
     const body = await request.json();
 
     const userId = toNumberOrNull(body.userId ?? body.user_id);
