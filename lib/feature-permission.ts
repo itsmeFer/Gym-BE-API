@@ -178,27 +178,34 @@ export async function requireFeature(
   }[request.method?.toUpperCase() ?? ""];
 
   if (methodSafe) {
-    const fromDefault = resolveEffectivePermissions(auth.dbUser.role, []).some(
-      (k) => keysToCheck.includes(k)
-    );
-    const fromCustom = entries.some((e) => {
+    const hasCustomEntry = entries.some((e) => {
       const expanded = new Set([
         e.featureKey,
         ...(FEATURE_ALIASES[e.featureKey] ?? []),
       ]);
-      return (
-        keysToCheck.some((k) => expanded.has(k)) &&
-        e.methods.includes(methodSafe)
-      );
+      return keysToCheck.some((k) => expanded.has(k));
     });
 
-    if (!fromDefault && !fromCustom) {
-      const label = METHOD_LABELS[methodSafe] ?? methodSafe;
-      return {
-        success: false,
-        message: `Akses ditolak: Anda tidak memiliki izin ${label} pada fitur ini.`,
-        statusCode: 403,
-      };
+    if (hasCustomEntry) {
+      const hasMethod = entries.some((e) => {
+        const expanded = new Set([
+          e.featureKey,
+          ...(FEATURE_ALIASES[e.featureKey] ?? []),
+        ]);
+        return (
+          keysToCheck.some((k) => expanded.has(k)) &&
+          e.methods.includes(methodSafe)
+        );
+      });
+
+      if (!hasMethod) {
+        const label = METHOD_LABELS[methodSafe] ?? methodSafe;
+        return {
+          success: false,
+          message: `Akses ditolak: Anda tidak memiliki izin ${label} pada fitur ini.`,
+          statusCode: 403,
+        };
+      }
     }
   }
 
