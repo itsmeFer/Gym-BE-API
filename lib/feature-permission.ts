@@ -178,7 +178,11 @@ export async function requireFeature(
   }[request.method?.toUpperCase() ?? ""];
 
   if (methodSafe) {
-    const hasCustomEntry = entries.some((e) => {
+    // Cari semua custom entry dalam satu keluarga alias fitur yang dicek.
+    // Jika user punya >1 entry di keluarga yang sama (mis. admin.users=CRUD
+    // dan admin.kelola_karyawan=R), izin efektif = IRISAN (paling restriktif),
+    // bukan gabungan. Ini mencegah entry CRUD "mewarisi" CRUD ke fitur R-only.
+    const familyEntries = entries.filter((e) => {
       const expanded = new Set([
         e.featureKey,
         ...(FEATURE_ALIASES[e.featureKey] ?? []),
@@ -186,17 +190,9 @@ export async function requireFeature(
       return keysToCheck.some((k) => expanded.has(k));
     });
 
-    if (hasCustomEntry) {
-      const hasMethod = entries.some((e) => {
-        const expanded = new Set([
-          e.featureKey,
-          ...(FEATURE_ALIASES[e.featureKey] ?? []),
-        ]);
-        return (
-          keysToCheck.some((k) => expanded.has(k)) &&
-          e.methods.includes(methodSafe)
-        );
-      });
+    if (familyEntries.length > 0) {
+      const allowed = familyEntries.map((e) => e.methods);
+      const hasMethod = allowed.every((methods) => methods.includes(methodSafe));
 
       if (!hasMethod) {
         const label = METHOD_LABELS[methodSafe] ?? methodSafe;
@@ -220,9 +216,14 @@ export async function getEffectivePermissions(
   return resolveEffectivePermissions(role, custom);
 }
 
+function intersectMethods(a: string, b: string): string {
+  return [...a].filter((m) => b.includes(m)).join("");
+}
+
 /**
- * Map fitur-efektif → methods (CRUD) untuk UI gating.
- * Default role = full 'CRUD'; custom pivot membatasi, termasuk melalui alias.
+ * Map fitur-efektif → methods (CRUD) untuk UI gating (fail-closed).
+ * Default role = full 'CRUD'; jika ada custom entry, izin efektif =
+ * IRISAN semua entry custom di keluarga alias fitur (paling restriktif).
  */
 export async function getEffectiveMethodMap(
   role: string,
@@ -238,16 +239,22 @@ export async function getEffectiveMethodMap(
 
   const map: Record<string, string> = {};
   for (const key of effective) {
-    if (defaults.includes(key)) {
-      map[key] = "CRUD";
-      continue;
-    }
-    const entry = entries.find((e) =>
+    const familyEntries = entries.filter((e) =>
       e.featureKey === key
         ? true
         : (FEATURE_ALIASES[e.featureKey] ?? []).includes(key)
     );
-    map[key] = entry?.methods ?? "CRUD";
+
+    if (familyEntries.length > 0) {
+      let methods = "CRUD";
+      for (const e of familyEntries) {
+        methods = intersectMethods(methods, e.methods);
+      }
+      map[key] = methods;
+      continue;
+    }
+
+    map[key] = defaults.includes(key) ? "CRUD" : "";
   }
   return map;
 }
