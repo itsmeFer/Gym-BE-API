@@ -5,6 +5,7 @@ import { Op } from "sequelize";
 import { User } from "@/database/models";
 import { errorResponse, successResponse } from "@/lib/response";
 import { requireFeature } from "@/lib/feature-permission";
+import { logActivity, extractClientIp } from "@/lib/activity-logger";
 
 const MANAGER_ALLOWED_ROLES = [
   "admin",
@@ -281,15 +282,54 @@ export async function DELETE(
   context: { params: Promise<{ id: string }> },
 ) {
   try {
+    const auth = await requireFeature(request, [
+      "manager.users",
+      "admin.users",
+      "admin.kelola_karyawan",
+    ]);
+    if (!auth.success) {
+      return errorResponse(auth.message, auth.statusCode);
+    }
+    const authUser = auth.user;
+
     const { id } = await context.params;
 
-    const user = await findManagerAllowedUser(id);
+    const user = await User.findByPk(id);
 
     if (!user) {
       return errorResponse("User tidak ditemukan", 404);
     }
 
+    const targetRole = String(user.get("role") ?? "").toLowerCase();
+    const currentRole = String(authUser.role ?? "").toLowerCase();
+
+    if (targetRole === "it" && currentRole !== "it") {
+      return errorResponse(
+        "Akses ditolak: Hanya sesama staf IT yang berhak menghapus akun IT",
+        403,
+      );
+    }
+
+    if (targetRole === "owner" && currentRole !== "owner") {
+      return errorResponse(
+        "Akses ditolak: Hanya owner yang berhak menghapus akun owner",
+        403,
+      );
+    }
+
+    const deletedUserName = user.name;
+    const deletedUserRole = user.role;
+
     await user.destroy();
+
+    await logActivity({
+      actorId: Number(authUser.id),
+      action: "USER_DELETE",
+      targetType: "user",
+      targetId: Number(id),
+      description: `Manager menghapus akun user ${deletedUserName} (Role: ${deletedUserRole})`,
+      ipAddress: extractClientIp(request),
+    });
 
     return successResponse({
       message: "User berhasil dihapus",

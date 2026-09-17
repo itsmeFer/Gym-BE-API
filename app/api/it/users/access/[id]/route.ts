@@ -3,11 +3,82 @@ import { NextRequest } from "next/server";
 import { User, UserPermission } from "@/database/models";
 import { errorResponse, successResponse } from "@/lib/response";
 import { getAdminFromRequest } from "@/lib/admin-auth";
-import { isValidFeatureKey } from "@/lib/feature-registry";
+import { FEATURES, isValidFeatureKey } from "@/lib/feature-registry";
 import { getEffectivePermissions } from "@/lib/feature-permission";
+import { logActivity, extractClientIp } from "@/lib/activity-logger";
 import { Op } from "sequelize";
 
 const SUPER_ROLES = ["it", "superadmin", "owner", "direktur"];
+
+const FEATURE_LABELS: Record<string, string> = Object.fromEntries(
+  FEATURES.map((f) => [f.key, f.label])
+);
+
+function formatMethodWord(methods: string): string {
+  const map: Record<string, string> = { C: "Tambah", R: "Lihat", U: "Ubah", D: "Hapus" };
+  const words = [...methods].map((c) => map[c]).filter(Boolean);
+  if (words.length === 0) return "CRUD";
+  if (words.length === 4) return "CRUD (Tambah/Lihat/Ubah/Hapus)";
+  return words.join("/");
+}
+
+function formatPermissionDescription(
+  userName: string,
+  userId: number,
+  previous: { featureKey: string; methods: string }[],
+  next: { featureKey: string; methods: string }[]
+): { action: string; description: string } {
+  const prevMap = new Map(previous.map((p) => [p.featureKey, p.methods]));
+  const nextMap = new Map(next.map((p) => [p.featureKey, p.methods]));
+
+  const allKeys = [...new Set([...prevMap.keys(), ...nextMap.keys()])];
+  const labelOf = (key: string) => FEATURE_LABELS[key] ?? key;
+
+  const changes: string[] = [];
+  let revokedCount = 0;
+  let grantedCount = 0;
+
+  for (const key of allKeys) {
+    const before = prevMap.get(key);
+    const after = nextMap.get(key);
+
+    if (before && !after) {
+      revokedCount++;
+      changes.push(`Mencabut "${labelOf(key)}" (sebelumnya ${formatMethodWord(before)})`);
+    } else if (!before && after) {
+      grantedCount++;
+      changes.push(`Memberikan "${labelOf(key)}" → ${formatMethodWord(after)}`);
+    } else if (before && after && before !== after) {
+      changes.push(
+        `"${labelOf(key)}": ${formatMethodWord(before)} → ${formatMethodWord(after)}`
+      );
+    }
+  }
+
+  const actor = `Update hak akses ${userName} (ID: ${userId})`;
+
+  if (changes.length === 0) {
+    return {
+      action: "ACCESS_UPDATED",
+      description: `${actor} — tidak ada perubahan efektif (${next.length} fitur aktif)`,
+    };
+  }
+
+  const verb =
+    revokedCount > 0 && grantedCount === 0
+      ? "ACCESS_REVOKED"
+      : grantedCount > 0 && revokedCount === 0
+      ? "ACCESS_GRANTED"
+      : "ACCESS_UPDATED";
+
+  const detail = changes.slice(0, 12).join("; ");
+  const more = changes.length > 12 ? `; +${changes.length - 12} perubahan lain` : "";
+
+  return {
+    action: verb,
+    description: `${actor} (${changes.length} perubahan): ${detail}${more}`,
+  };
+}
 
 /**
  * PUT /api/it/users/access/[id]
@@ -101,6 +172,13 @@ export async function PUT(
       permissions.push({ featureKey: key, methods });
     }
 
+    // Snapshot permission lama untuk audit trail granular
+    const previousPermissions = await UserPermission.findAll({
+      where: { userId },
+      attributes: ["featureKey", "methods"],
+      raw: true,
+    });
+
     // Full replace dalam satu transaksi atomik
     await User.sequelize!.transaction(async (t) => {
       await UserPermission.destroy({
@@ -118,6 +196,22 @@ export async function PUT(
           { transaction: t }
         );
       }
+    });
+
+    const logInfo = formatPermissionDescription(
+      target.name,
+      userId,
+      previousPermissions,
+      permissions
+    );
+
+    await logActivity({
+      actorId: Number(auth.user.id),
+      action: logInfo.action,
+      targetType: "user_permission",
+      targetId: userId,
+      description: logInfo.description,
+      ipAddress: extractClientIp(request),
     });
 
     const effective = await getEffectivePermissions(targetRole, userId);

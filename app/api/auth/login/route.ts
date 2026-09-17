@@ -1,6 +1,7 @@
 import { User } from "@/database/models";
 import { getEffectiveMethodMap, getEffectivePermissions } from "@/lib/feature-permission";
 import { errorResponse, successResponse } from "@/lib/response";
+import { logActivity, extractClientIp } from "@/lib/activity-logger";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { Op } from "sequelize";
@@ -106,6 +107,13 @@ export async function POST(request: Request) {
     });
 
     if (!user) {
+      void logActivity({
+        actorId: null,
+        action: "AUTH_FAILED",
+        targetType: "user",
+        description: `Login gagal: akun tidak ditemukan [identifier: ${identifier}]`,
+        ipAddress: extractClientIp(request),
+      }).catch(() => {});
       return errorResponse("Akun tidak ditemukan", 404);
     }
 
@@ -114,6 +122,13 @@ export async function POST(request: Request) {
     const isActive = userData.isActive ?? userData.is_active ?? true;
 
     if (isActive === false) {
+      void logActivity({
+        actorId: userData.id,
+        action: "AUTH_FAILED",
+        targetType: "user",
+        description: `Login gagal: akun nonaktif [identifier: ${identifier}]`,
+        ipAddress: extractClientIp(request),
+      }).catch(() => {});
       return errorResponse(
         "Akun kamu belum aktif atau sedang dinonaktifkan",
         403
@@ -133,6 +148,13 @@ export async function POST(request: Request) {
     );
 
     if (!isPasswordValid) {
+      void logActivity({
+        actorId: userData.id,
+        action: "AUTH_FAILED",
+        targetType: "user",
+        description: `Login gagal: password salah [identifier: ${identifier}]`,
+        ipAddress: extractClientIp(request),
+      }).catch(() => {});
       return errorResponse("Password salah", 401);
     }
 

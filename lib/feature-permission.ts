@@ -1,6 +1,7 @@
 import { getTokenFromRequest, verifyToken, type JwtUserPayload } from "./auth";
 import { User, UserPermission } from "@/database/models";
 import { ROLE_DEFAULT_FEATURES } from "./feature-registry";
+import { logActivity, extractClientIp } from "./activity-logger";
 import { Op } from "sequelize";
 
 export type FeatureAuthResult =
@@ -160,6 +161,13 @@ export async function requireFeature(
   const hasFeature = keysToCheck.some((k) => effective.includes(k));
 
   if (!hasFeature) {
+    void logActivity({
+      actorId: auth.dbUser.id,
+      action: "ACCESS_DENIED",
+      targetType: keysToCheck.join(",").toLowerCase(),
+      description: `Akses ditolak: Tidak memiliki izin fitur [${keysToCheck.join(", ")}] pada method ${request.method?.toUpperCase()} [actor: ${actorRole}]`,
+      ipAddress: extractClientIp(request),
+    }).catch(() => { });
     return {
       success: false,
       message: "Akses ditolak: Anda tidak memiliki izin fitur ini.",
@@ -196,6 +204,13 @@ export async function requireFeature(
 
       if (!hasMethod) {
         const label = METHOD_LABELS[methodSafe] ?? methodSafe;
+        void logActivity({
+          actorId: auth.dbUser.id,
+          action: "ACCESS_DENIED",
+          targetType: keysToCheck.join(",").toLowerCase(),
+          description: `Akses ditolak: Tidak memiliki izin ${label} pada fitur [${keysToCheck.join(", ")}] [actor: ${actorRole}]`,
+          ipAddress: extractClientIp(request),
+        }).catch(() => { });
         return {
           success: false,
           message: `Akses ditolak: Anda tidak memiliki izin ${label} pada fitur ini.`,

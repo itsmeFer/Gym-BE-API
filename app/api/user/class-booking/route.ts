@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { Membership } from "@/database/models";
 import { errorResponse, successResponse } from "@/lib/response";
 import { requireAuth } from "@/lib/rbac";
+import { logActivity, extractClientIp } from "@/lib/activity-logger";
 
 // In-memory store for user class bookings
 const inMemoryBookings: Map<number, any[]> = new Map();
@@ -118,6 +119,14 @@ export async function POST(request: NextRequest) {
 
     userBookings.push(newBooking);
     inMemoryBookings.set(userId, userBookings);
+
+    void logActivity({
+      actorId: auth.user.id,
+      action: "CLASS_BOOKED",
+      targetType: "class",
+      description: `Booking kelas "${className || "Gym Class"}" dengan ${ptName || "Coach Duty"} tanggal ${date} [user ID: ${userId}]`,
+      ipAddress: extractClientIp(request),
+    }).catch(() => {});
 
     return successResponse({
       message: `Berhasil mendaftar kelas ${className} dengan ${ptName} pada tanggal ${date}!`,

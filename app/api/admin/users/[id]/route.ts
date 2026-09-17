@@ -5,6 +5,7 @@ import { Op } from "sequelize";
 import { User } from "@/database/models";
 import { errorResponse, successResponse } from "@/lib/response";
 import { requireFeature } from "@/lib/feature-permission";
+import { logActivity, extractClientIp } from "@/lib/activity-logger";
 
 const STAFF_ROLES = [
   "admin",
@@ -141,6 +142,7 @@ export async function PUT(
     if (!auth.success) {
       return errorResponse(auth.message, auth.statusCode);
     }
+    const authUser = auth.user;
 
     const { id } = await context.params;
     const body = await request.json();
@@ -149,6 +151,16 @@ export async function PUT(
 
     if (!user) {
       return errorResponse("Akun tidak ditemukan", 404);
+    }
+
+    const targetRole = String(user.get("role") ?? "").toLowerCase();
+    const currentRole = String(authUser.role ?? "").toLowerCase();
+
+    if (targetRole === "it" && currentRole !== "it") {
+      return errorResponse(
+        "Akses ditolak: Hanya sesama staf IT yang berhak mengelola akun IT",
+        403,
+      );
     }
 
     const name =
@@ -249,6 +261,15 @@ export async function PUT(
 
     await user.update(payload);
 
+    await logActivity({
+      actorId: Number(authUser.id),
+      action: "USER_UPDATE",
+      targetType: "user",
+      targetId: Number(id),
+      description: `Mengubah data akun ${user.name} (Role: ${user.role})`,
+      ipAddress: extractClientIp(request),
+    });
+
     const updatedUser = await User.findByPk(id);
 
     return successResponse({
@@ -293,6 +314,13 @@ export async function DELETE(
     const targetRole = String(user.get("role") ?? "").toLowerCase();
     const currentRole = String(authUser.role ?? "").toLowerCase();
 
+    if (targetRole === "it" && currentRole !== "it") {
+      return errorResponse(
+        "Akses ditolak: Hanya sesama staf IT yang berhak menghapus akun IT",
+        403,
+      );
+    }
+
     if (targetRole === "owner" && currentRole !== "owner") {
       return errorResponse(
         "Hanya akun owner yang berhak mengelola atau menghapus sesama owner",
@@ -300,7 +328,19 @@ export async function DELETE(
       );
     }
 
+    const deletedUserName = user.name;
+    const deletedUserRole = user.role;
+
     await user.destroy();
+
+    await logActivity({
+      actorId: Number(authUser.id),
+      action: "USER_DELETE",
+      targetType: "user",
+      targetId: Number(id),
+      description: `Menghapus akun tim ${deletedUserName} (Role: ${deletedUserRole})`,
+      ipAddress: extractClientIp(request),
+    });
 
     return successResponse({
       message: "Akun tim berhasil dihapus",

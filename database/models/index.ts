@@ -8,6 +8,7 @@ import { PtSession } from "./PtSession";
 import { PointHistory } from "./PointHistory";
 import MembershipPlanSchedule from "./MembershipPlanSchedule";
 import UserPermission from "./UserPermission";
+import ActivityLog from "./ActivityLog";
 
 User.hasMany(Membership, {
   foreignKey: "userId",
@@ -110,6 +111,15 @@ UserPermission.belongsTo(User, {
   as: "user",
 });
 
+User.hasMany(ActivityLog, {
+  foreignKey: "actorId",
+  as: "activityLogs",
+});
+ActivityLog.belongsTo(User, {
+  foreignKey: "actorId",
+  as: "actor",
+});
+
 export {
   User,
   Membership,
@@ -120,4 +130,5 @@ export {
   PtSession,
   PointHistory,
   UserPermission,
+  ActivityLog,
 };

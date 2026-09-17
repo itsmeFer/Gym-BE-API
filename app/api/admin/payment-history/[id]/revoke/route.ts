@@ -4,6 +4,7 @@ import { sequelize } from "@/database/connection";
 import { Membership, MembershipPlan, User } from "@/database/models";
 import { errorResponse, successResponse } from "@/lib/response";
 import { requireFeature } from "@/lib/feature-permission";
+import { logActivity, extractClientIp } from "@/lib/activity-logger";
 
 export const runtime = "nodejs";
 
@@ -165,6 +166,15 @@ export async function POST(
     }
 
     const freshHistory = await findHistoryWithRelations(history.id);
+
+    await logActivity({
+      actorId: Number(auth.user.id),
+      action: "PAYMENT_REVOKED",
+      targetType: "membership",
+      targetId: Number(history.id),
+      description: `Mencabut status membership ID ${history.id}: ${revokeReason}`,
+      ipAddress: extractClientIp(request),
+    });
 
     return successResponse({
       message: "Membership berhasil dicabut. Data riwayat tetap tersimpan.",

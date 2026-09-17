@@ -6,6 +6,7 @@ import { buildMembershipAgreementPdf } from "@/lib/pdf/membershipAgreementPdf";
 import { sendMembershipAgreementEmail } from "@/lib/mail/sendMembershipAgreementEmail";
 import { getTokenFromRequest, verifyToken } from "@/lib/auth";
 import { fetchUserPermissionKeys, resolveEffectivePermissions } from "@/lib/feature-permission";
+import { logActivity, extractClientIp } from "@/lib/activity-logger";
 
 export const runtime = "nodejs";
 
@@ -456,6 +457,15 @@ export async function POST(
           ? mailError.message
           : "Gagal mengirim email PDF membership";
     }
+
+    await logActivity({
+      actorId: Number(resolvedAdminId),
+      action: "PAYMENT_APPROVED",
+      targetType: "membership",
+      targetId: Number(paymentId),
+      description: `Verifikasi pembayaran membership LUNAS Rp ${Number(paidAmount).toLocaleString('id-ID')} untuk member ${freshUser?.name ?? memberUser.name}`,
+      ipAddress: extractClientIp(request),
+    });
 
     return successResponse({
       message: emailSent

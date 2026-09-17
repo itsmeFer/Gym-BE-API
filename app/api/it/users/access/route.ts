@@ -5,6 +5,7 @@ import { errorResponse, successResponse } from "@/lib/response";
 import { getAdminFromRequest } from "@/lib/admin-auth";
 import { FEATURES, ROLE_DEFAULT_FEATURES } from "@/lib/feature-registry";
 import { getEffectivePermissions } from "@/lib/feature-permission";
+import { logActivity, extractClientIp } from "@/lib/activity-logger";
 
 async function serializeStaff(user: User) {
   const plain = user.get({ plain: true }) as {
@@ -70,6 +71,15 @@ export async function GET(request: NextRequest) {
     for (const user of users) {
       data.push(await serializeStaff(user));
     }
+
+    await logActivity({
+      actorId: Number(auth.user.id),
+      action: "ACCESS_VIEWED",
+      targetType: "user_permission",
+      targetId: null,
+      description: `Melihat manajemen hak akses ${users.length} user (dengan permission khusus: ${data.filter((u) => u.permissions.length > 0).length} user)`,
+      ipAddress: extractClientIp(request),
+    });
 
     return successResponse({
       message: "Data akses user berhasil diambil",

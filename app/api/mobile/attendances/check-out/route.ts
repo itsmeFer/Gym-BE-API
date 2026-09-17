@@ -3,6 +3,7 @@ import { Op } from "sequelize";
 import { Attendance, AttendanceSetting } from "@/database/models";
 import { errorResponse, successResponse } from "@/lib/response";
 import { requireAuth } from "@/lib/rbac";
+import { logActivity, extractClientIp } from "@/lib/activity-logger";
 
 type AttendanceSettingRaw = {
   id: number;
@@ -378,6 +379,13 @@ export async function POST(request: NextRequest) {
     }
 
     if (attendance.checkOut) {
+      void logActivity({
+        actorId: userId,
+        action: "ATTENDANCE_DENIED",
+        targetType: "attendance",
+        description: `Check-out ditolak: sudah absen keluar hari ini [user ID: ${userId}]`,
+        ipAddress: extractClientIp(request),
+      }).catch(() => {});
       return errorResponse("Kamu sudah absen keluar hari ini.", 409);
     }
 
@@ -423,6 +431,14 @@ export async function POST(request: NextRequest) {
     const updatedAttendance = await Attendance.findByPk(attendance.id);
 
     const serializedAttendance = serializeAttendance(updatedAttendance);
+
+    void logActivity({
+      actorId: userId,
+      action: "ATTENDANCE_CHECKOUT",
+      targetType: "attendance",
+      description: `Absen keluar berhasil [role: ${role}]`,
+      ipAddress: extractClientIp(request),
+    }).catch(() => {});
 
     return successResponse({
       message: `Absen keluar berhasil. Total kerja hari ini ${

@@ -3,6 +3,7 @@ import { Op } from "sequelize";
 import { Attendance, AttendanceSetting, Membership, User, PointHistory, MembershipPlan } from "@/database/models";
 import { errorResponse, successResponse } from "@/lib/response";
 import { requireAuth } from "@/lib/rbac";
+import { logActivity, extractClientIp } from "@/lib/activity-logger";
 
 type AttendanceSettingRaw = {
   id: number;
@@ -379,23 +380,51 @@ export async function POST(request: NextRequest) {
 
       if (!activeMem) {
         if (hasExpired && !hasAwaitingSchedule && !hasNotStarted) {
+          void logActivity({
+            actorId: userId,
+            action: "ATTENDANCE_DENIED",
+            targetType: "attendance",
+            description: `Check-in ditolak: membership expired [user: ${fullName}]`,
+            ipAddress: extractClientIp(request),
+          }).catch(() => {});
           return errorResponse(
             "Check-in ditolak! Masa aktif paket membership kamu sudah habis. Silakan perpanjang paket terlebih dahulu.",
             403
           );
         }
         if (hasAwaitingSchedule) {
+          void logActivity({
+            actorId: userId,
+            action: "ATTENDANCE_DENIED",
+            targetType: "attendance",
+            description: `Check-in ditolak: belum atur jadwal membership [user: ${fullName}]`,
+            ipAddress: extractClientIp(request),
+          }).catch(() => {});
           return errorResponse(
             "Check-in ditolak! Kamu belum menentukan tanggal mulai jadwal membership. Silakan atur jadwal di menu Member.",
             400
           );
         }
         if (hasNotStarted) {
+          void logActivity({
+            actorId: userId,
+            action: "ATTENDANCE_DENIED",
+            targetType: "attendance",
+            description: `Check-in ditolak: membership belum mulai aktif [user: ${fullName}]`,
+            ipAddress: extractClientIp(request),
+          }).catch(() => {});
           return errorResponse(
             "Check-in ditolak! Paket membership kamu belum mulai aktif.",
             400
           );
         }
+        void logActivity({
+          actorId: userId,
+          action: "ATTENDANCE_DENIED",
+          targetType: "attendance",
+          description: `Check-in ditolak: tidak ada membership aktif [user: ${fullName}]`,
+          ipAddress: extractClientIp(request),
+        }).catch(() => {});
         return errorResponse(
           "Kamu belum memiliki paket membership aktif yang sudah dibayar.",
           403
@@ -464,6 +493,13 @@ export async function POST(request: NextRequest) {
     });
 
     if (existingAttendance) {
+      void logActivity({
+        actorId: userId,
+        action: "ATTENDANCE_DENIED",
+        targetType: "attendance",
+        description: `Check-in ditolak: sudah absen masuk hari ini [user: ${fullName}]`,
+        ipAddress: extractClientIp(request),
+      }).catch(() => {});
       return errorResponse("Kamu sudah absen masuk hari ini.", 409);
     }
 
@@ -556,6 +592,14 @@ export async function POST(request: NextRequest) {
     } catch (ptError) {
       console.error("Failed to add PT point for check-in:", ptError);
     }
+
+    void logActivity({
+      actorId: userId,
+      action: "ATTENDANCE_CHECKIN",
+      targetType: "attendance",
+      description: `Absen masuk berhasil [user: ${fullName} | role: ${role}]`,
+      ipAddress: extractClientIp(request),
+    }).catch(() => {});
 
     return successResponse({
       message:

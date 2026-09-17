@@ -3,6 +3,8 @@ import { NextRequest } from "next/server";
 import { User } from "@/database/models";
 import { errorResponse, successResponse } from "@/lib/response";
 import { getAdminFromRequest } from "@/lib/admin-auth";
+import { logActivity, extractClientIp } from "@/lib/activity-logger";
+import { ROLE_DEFAULT_FEATURES } from "@/lib/feature-registry";
 
 /**
  * PUT /api/it/users/[id]/role
@@ -68,7 +70,20 @@ export async function PUT(
       );
     }
 
+    const oldRole = target.role;
+    const oldDefaultCount = ROLE_DEFAULT_FEATURES[oldRole as string]?.length ?? 0;
+    const newDefaultCount = ROLE_DEFAULT_FEATURES[newRole]?.length ?? 0;
+
     await target.update({ role: newRole as User["role"] });
+
+    await logActivity({
+      actorId: Number(auth.user.id),
+      action: "ROLE_UPDATED",
+      targetType: "user",
+      targetId: target.id,
+      description: `Mengubah role ${target.name} (ID: ${target.id}) dari ${oldRole} menjadi ${newRole}. Menu default berubah dari ${oldDefaultCount} menjadi ${newDefaultCount} menu${oldDefaultCount !== newDefaultCount ? " — hak akses efektif user ikut berubah" : ""}.`,
+      ipAddress: extractClientIp(request),
+    });
 
     return successResponse({
       message: `Role ${target.name} berhasil diubah menjadi ${newRole}`,
