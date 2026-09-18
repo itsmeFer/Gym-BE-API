@@ -1,5 +1,6 @@
 import { User } from "@/database/models";
 import { errorResponse, successResponse } from "@/lib/response";
+import { logActivity, extractClientIp } from "@/lib/activity-logger";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 
@@ -114,6 +115,15 @@ export async function POST(request: Request) {
         expiresIn: "7d",
       }
     );
+
+    void logActivity({
+      actorId: user.id,
+      action: "EMAIL_VERIFIED",
+      targetType: "user",
+      targetId: user.id,
+      description: `Email ${email} berhasil diverifikasi`,
+      ipAddress: extractClientIp(request),
+    }).catch(() => {});
 
     return successResponse(
       {

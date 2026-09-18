@@ -4,6 +4,7 @@ import {
   getEffectiveMethodMap,
   getEffectivePermissions,
 } from "@/lib/feature-permission";
+import { logActivity, extractClientIp } from "@/lib/activity-logger";
 import { errorResponse, successResponse } from "@/lib/response";
 
 export const runtime = "nodejs";
@@ -121,6 +122,15 @@ export async function PUT(request: Request) {
     }
 
     await user.save();
+
+    void logActivity({
+      actorId: payload.id,
+      action: "PROFILE_UPDATED",
+      targetType: "user",
+      targetId: payload.id,
+      description: `Profil diperbarui${name ? `: nama -> ${name}` : ""}${phone ? `${name ? ", " : ""}phone -> ${user.phone}` : ""}`,
+      ipAddress: extractClientIp(request),
+    }).catch(() => {});
 
     return successResponse({ message: "Profil berhasil diperbarui", data: await serializeMeUser(user) });
   } catch (error) {

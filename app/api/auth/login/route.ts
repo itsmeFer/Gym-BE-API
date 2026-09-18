@@ -189,6 +189,15 @@ export async function POST(request: Request) {
       }
     );
 
+    void logActivity({
+      actorId: userData.id,
+      action: "LOGIN_SUCCESS",
+      targetType: "user",
+      targetId: userData.id,
+      description: `Login berhasil: ${userData.name} [role: ${role}, identifier: ${identifier}]`,
+      ipAddress: extractClientIp(request),
+    }).catch(() => {});
+
     return successResponse({
       message: "Login berhasil",
       data: {

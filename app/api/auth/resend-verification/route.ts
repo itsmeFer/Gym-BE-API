@@ -1,5 +1,6 @@
 import { User } from "@/database/models";
 import { errorResponse, successResponse } from "@/lib/response";
+import { logActivity, extractClientIp } from "@/lib/activity-logger";
 import { sendEmailVerificationCode } from "@/lib/mail/verification";
 import bcrypt from "bcryptjs";
 
@@ -80,6 +81,15 @@ export async function POST(request: Request) {
     user.emailVerificationLastSentAt = now;
 
     await user.save();
+
+    void logActivity({
+      actorId: user.id,
+      action: "OTP_RESENT",
+      targetType: "user",
+      targetId: user.id,
+      description: `Kode verifikasi dikirim ulang ke ${user.email}`,
+      ipAddress: extractClientIp(request),
+    }).catch(() => {});
 
     return successResponse(
       {

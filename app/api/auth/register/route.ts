@@ -2,6 +2,7 @@ import { User } from "@/database/models";
 import { errorResponse, successResponse } from "@/lib/response";
 import { generateReferralCode } from "@/lib/referral";
 import { sendEmailVerificationCode } from "@/lib/mail/verification";
+import { logActivity, extractClientIp } from "@/lib/activity-logger";
 import bcrypt from "bcryptjs";
 
 export const runtime = "nodejs";
@@ -118,6 +119,15 @@ export async function POST(request: Request) {
 
       await existingUser.save();
 
+      void logActivity({
+        actorId: existingUser.id,
+        action: "REGISTER_OTP_RESENT",
+        targetType: "user",
+        targetId: existingUser.id,
+        description: `Register ulang akun belum terverifikasi, OTP dikirim ke ${email}`,
+        ipAddress: extractClientIp(request),
+      }).catch(() => {});
+
       return successResponse(
         {
           message:
@@ -201,6 +211,15 @@ export async function POST(request: Request) {
       emailVerificationExpiresAt: addMinutes(now, OTP_EXPIRED_MINUTES),
       emailVerificationLastSentAt: now,
     });
+
+    void logActivity({
+      actorId: user.id,
+      action: "REGISTER_SUCCESS",
+      targetType: "user",
+      targetId: user.id,
+      description: `Register member baru: ${name} [email: ${email}, phone: ${cleanPhone}${referralCodeInput ? `, referral: ${referralCodeInput}` : ""}]`,
+      ipAddress: extractClientIp(request),
+    }).catch(() => {});
 
     return successResponse(
       {
