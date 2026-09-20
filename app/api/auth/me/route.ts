@@ -73,6 +73,15 @@ export async function GET(request: Request) {
       return errorResponse("Akun kamu belum aktif atau sedang dinonaktifkan", 403);
     }
 
+    void logActivity({
+      actorId: payload.id,
+      action: "SESSION_RESTORED",
+      targetType: "user",
+      targetId: payload.id,
+      description: `Sesi login dipulihkan via token: ${userData.name} [role: ${String(userData.role ?? "customer").toLowerCase()}]`,
+      ipAddress: extractClientIp(request),
+    }).catch(() => {});
+
     return successResponse({ message: "Data user berhasil diambil", data: await serializeMeUser(user) });
   } catch (error) {
     console.error("GET ME ERROR:", error);

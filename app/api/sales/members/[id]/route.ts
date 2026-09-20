@@ -124,6 +124,10 @@ export async function PUT(
   context: { params: Promise<{ id: string }> },
 ) {
   try {
+    const auth = await requireFeature(request, "sales.membership", ["sales"]);
+    if (!auth.success) {
+      return errorResponse(auth.message, auth.statusCode);
+    }
     const { id } = await context.params;
     const membershipId = toNumber(id, 0);
 
@@ -251,6 +255,10 @@ export async function DELETE(
   context: { params: Promise<{ id: string }> },
 ) {
   try {
+    const auth = await requireFeature(request, "sales.membership", ["sales"]);
+    if (!auth.success) {
+      return errorResponse(auth.message, auth.statusCode);
+    }
     const { id } = await context.params;
     const membershipId = toNumber(id, 0);
 

@@ -201,6 +201,10 @@ export async function PUT(
   context: { params: Promise<{ id: string }> }
 ) {
   try {
+    const auth = await requireFeature(request, ["admin.kasir", "admin.laporan"], ["admin"]);
+    if (!auth.success) {
+      return errorResponse(auth.message, auth.statusCode);
+    }
     const { id } = await context.params;
     const historyId = toNumber(id, 0);
 

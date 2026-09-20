@@ -389,6 +389,10 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    const auth = await requireFeature(request, "manager.absensi", ["manager"]);
+    if (!auth.success) {
+      return errorResponse(auth.message, auth.statusCode);
+    }
     const body = await request.json();
 
     const userId = toNumberOrNull(body.userId ?? body.user_id);

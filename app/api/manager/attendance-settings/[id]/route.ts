@@ -85,6 +85,10 @@ export async function PUT(
   context: { params: Promise<{ id: string }> },
 ) {
   try {
+    const auth = await requireFeature(request, "manager.absensi", ["manager"]);
+    if (!auth.success) {
+      return errorResponse(auth.message, auth.statusCode);
+    }
     const { id } = await context.params;
     const body = await request.json();
 
@@ -267,6 +271,10 @@ export async function DELETE(
   context: { params: Promise<{ id: string }> },
 ) {
   try {
+    const auth = await requireFeature(request, "manager.absensi", ["manager"]);
+    if (!auth.success) {
+      return errorResponse(auth.message, auth.statusCode);
+    }
     const { id } = await context.params;
 
     const setting = await AttendanceSetting.findByPk(id);

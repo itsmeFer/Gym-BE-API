@@ -298,6 +298,10 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    const auth = await requireFeature(request, "manager.absensi", ["manager"]);
+    if (!auth.success) {
+      return errorResponse(auth.message, auth.statusCode);
+    }
     const body = (await request.json()) as Record<string, unknown>;
 
     const requestedRoles = normalizeRolesFromBody(body);
@@ -366,5 +370,10 @@ export async function POST(request: NextRequest) {
 }
 
 export async function PUT(request: NextRequest) {
+  const auth = await requireFeature(request, "manager.absensi", ["manager"]);
+  if (!auth.success) {
+    return errorResponse(auth.message, auth.statusCode);
+  }
+
   return POST(request);
 }
