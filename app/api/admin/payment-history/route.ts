@@ -142,19 +142,34 @@ export async function GET(request: NextRequest) {
 
     const url = new URL(request.url);
 
+    const page = Math.max(Number(url.searchParams.get("page") || 1), 1);
+    const limitParam = url.searchParams.get("limit");
+    const limit =
+      limitParam === "all"
+        ? undefined
+        : Math.min(Math.max(Number(limitParam || 15), 1), 100);
+    const offset = limit ? (page - 1) * limit : undefined;
+    const search = (url.searchParams.get("search") || "").trim();
+
     const memberStatus = String(url.searchParams.get("memberStatus") ?? "")
       .trim()
       .toLowerCase();
 
-    const where: Record<string, unknown> = {
+    const where: any = {
       paymentStatus: "paid",
     };
 
-    if (memberStatus) {
+    if (memberStatus && memberStatus !== "all") {
       where.memberStatus = memberStatus;
     }
 
-    const histories = await Membership.findAll({
+    if (search) {
+      where[Op.or] = [
+        { packageName: { [Op.iLike]: `%${search}%` } },
+      ];
+    }
+
+    const { count, rows: histories } = await Membership.findAndCountAll({
       where,
       attributes: {
         include: [
@@ -171,8 +186,11 @@ export async function GET(request: NextRequest) {
         ["paidAt", "DESC"],
         ["id", "DESC"],
       ],
-      limit: 50,
+      limit,
+      offset,
     });
+
+    const totalPages = limit ? Math.max(Math.ceil(count / limit), 1) : 1;
 
     const plainHistories = histories.map((item) => item.get({ plain: true }));
 
@@ -210,6 +228,14 @@ export async function GET(request: NextRequest) {
 
     return successResponse({
       message: "Riwayat pembayaran admin berhasil diambil",
+      pagination: {
+        page,
+        limit: limit ?? count,
+        totalItems: count,
+        totalPages,
+        hasNextPage: page < totalPages,
+        hasPrevPage: page > 1,
+      },
       data: plainHistories.map((history) =>
         serializeHistory(history, {
           usersById,

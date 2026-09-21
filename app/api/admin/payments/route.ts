@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { Sequelize } from "sequelize";
+import { Op, Sequelize } from "sequelize";
 import { Membership, MembershipPlan, User } from "@/database/models";
 import { errorResponse, successResponse } from "@/lib/response";
 import { requireFeature } from "@/lib/feature-permission";
@@ -64,11 +64,32 @@ export async function GET(request: NextRequest) {
       return errorResponse(auth.message, auth.statusCode);
     }
 
-    const payments = await Membership.findAll({
-      where: {
-        salesStatus: "waiting_payment",
-        memberStatus: "pending",
-      },
+    const { searchParams } = request.nextUrl;
+    const page = Math.max(Number(searchParams.get("page") || 1), 1);
+    const limitParam = searchParams.get("limit");
+    const limit =
+      limitParam === "all"
+        ? undefined
+        : Math.min(Math.max(Number(limitParam || 15), 1), 100);
+    const offset = limit ? (page - 1) * limit : undefined;
+    const search = (searchParams.get("search") || "").trim();
+
+    const where: any = {
+      salesStatus: "waiting_payment",
+      memberStatus: "pending",
+    };
+
+    if (search) {
+      where[Op.or] = [
+        { packageName: { [Op.iLike]: `%${search}%` } },
+        { "$user.name$": { [Op.iLike]: `%${search}%` } },
+        { "$user.phone$": { [Op.iLike]: `%${search}%` } },
+        { "$sales.name$": { [Op.iLike]: `%${search}%` } },
+      ];
+    }
+
+    const { count, rows: payments } = await Membership.findAndCountAll({
+      where,
       attributes: {
         include: [
           [
@@ -98,11 +119,24 @@ export async function GET(request: NextRequest) {
           required: false,
         },
       ],
+      distinct: true,
+      limit,
+      offset,
       order: [["id", "DESC"]],
     });
 
+    const totalPages = limit ? Math.max(Math.ceil(count / limit), 1) : 1;
+
     return successResponse({
       message: "Data pembayaran admin berhasil diambil",
+      pagination: {
+        page,
+        limit: limit ?? count,
+        totalItems: count,
+        totalPages,
+        hasNextPage: page < totalPages,
+        hasPrevPage: page > 1,
+      },
       data: payments.map(serializePayment),
     });
   } catch (error) {
