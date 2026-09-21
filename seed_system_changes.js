@@ -121,6 +121,16 @@ async function seed() {
         created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
         updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
       );
+
+      CREATE TABLE IF NOT EXISTS user_system_change_reads (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        system_change_id INTEGER NOT NULL REFERENCES system_changes(id) ON DELETE CASCADE,
+        read_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+        created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+        CONSTRAINT uq_user_system_change_read UNIQUE (user_id, system_change_id)
+      );
     `);
 
     const itUserRes = await client.query("SELECT id, name FROM users WHERE role = 'it' LIMIT 1");
