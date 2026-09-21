@@ -41,7 +41,7 @@ export async function GET(request: NextRequest) {
         {
           model: SystemChangeItem,
           as: "items",
-          attributes: ["id", "pointTitle", "description", "orderIndex"],
+          attributes: ["id", "pointTitle", "description", "category", "orderIndex"],
         },
         {
           model: User,
@@ -148,6 +148,12 @@ export async function POST(request: NextRequest) {
             systemChangeId: newChange.id,
             pointTitle: item.pointTitle.trim(),
             description: item.description.trim(),
+            category:
+              item.category && typeof item.category === "string"
+                ? item.category.trim()
+                : category && typeof category === "string"
+                ? category.trim()
+                : "Fitur Baru",
             orderIndex: Number(item.orderIndex ?? i + 1),
           },
           { transaction: t }

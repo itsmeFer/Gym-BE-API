@@ -55,6 +55,12 @@ export async function PUT(
               systemChangeId: change.id,
               pointTitle: String(item.pointTitle ?? "").trim(),
               description: String(item.description ?? "").trim(),
+              category:
+                item.category && typeof item.category === "string"
+                  ? item.category.trim()
+                  : category && typeof category === "string"
+                  ? category.trim()
+                  : "Fitur Baru",
               orderIndex: Number(item.orderIndex ?? i + 1),
             },
             { transaction: t }

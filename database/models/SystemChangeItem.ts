@@ -6,6 +6,7 @@ export interface SystemChangeItemAttributes {
   systemChangeId: number;
   pointTitle: string;
   description: string;
+  category: string;
   orderIndex: number;
   createdAt?: Date;
   updatedAt?: Date;
@@ -13,7 +14,7 @@ export interface SystemChangeItemAttributes {
 
 export type SystemChangeItemCreationAttributes = Optional<
   SystemChangeItemAttributes,
-  "id" | "orderIndex" | "createdAt" | "updatedAt"
+  "id" | "category" | "orderIndex" | "createdAt" | "updatedAt"
 >;
 
 export class SystemChangeItem
@@ -24,6 +25,7 @@ export class SystemChangeItem
   declare systemChangeId: number;
   declare pointTitle: string;
   declare description: string;
+  declare category: string;
   declare orderIndex: number;
 
   declare readonly createdAt: Date;
@@ -55,6 +57,12 @@ SystemChangeItem.init(
     description: {
       type: DataTypes.TEXT,
       allowNull: false,
+    },
+    category: {
+      type: DataTypes.STRING(100),
+      allowNull: false,
+      defaultValue: "Fitur Baru",
+      field: "category",
     },
     orderIndex: {
       type: DataTypes.INTEGER,

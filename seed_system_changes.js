@@ -118,6 +118,7 @@ async function seed() {
         system_change_id INTEGER NOT NULL REFERENCES system_changes(id) ON DELETE CASCADE,
         point_title VARCHAR(255) NOT NULL,
         description TEXT NOT NULL,
+        category VARCHAR(100) NOT NULL DEFAULT 'Fitur Baru',
         order_index INTEGER NOT NULL DEFAULT 1,
         created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
         updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
