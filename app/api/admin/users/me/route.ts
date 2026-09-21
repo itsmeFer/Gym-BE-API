@@ -49,6 +49,7 @@ export async function GET(request: NextRequest) {
         "points",
         "maxPoints",
         "isActive",
+        "photoUrl",
         "createdAt",
       ],
     });
@@ -72,6 +73,7 @@ export async function GET(request: NextRequest) {
         phone: userData.phone,
         role: String(userData.role ?? "").toLowerCase(),
         effectivePermissions,
+        photoUrl: userData.photoUrl ?? null,
         points: Number(userData.points ?? 0),
         maxPoints: Number(userData.maxPoints ?? 100),
         isActive: Boolean(userData.isActive),

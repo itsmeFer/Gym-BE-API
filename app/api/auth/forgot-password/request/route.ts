@@ -45,17 +45,7 @@ export async function POST(request: Request) {
     });
 
     if (!user) {
-      return successResponse(
-        {
-          message: "Jika akun terdaftar, kode verifikasi akan dikirimkan ke email.",
-          data: {
-            identifier,
-            expiresInSeconds: OTP_EXPIRED_MINUTES * 60,
-            resendAfterSeconds: RESEND_COOLDOWN_MINUTES * 60,
-          },
-        },
-        200
-      );
+      return errorResponse("Email atau nomor HP tidak terdaftar dalam sistem.", 404);
     }
 
     if (user.emailVerificationLastSentAt) {
