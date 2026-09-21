@@ -1,6 +1,7 @@
+require('dotenv').config({ path: '.env.local' });
 const { Client } = require('pg');
 
-const dbUrl = process.env.DATABASE_URL || 'postgresql://postgres@localhost:5432/prima_gym_db';
+const dbUrl = process.env.DATABASE_URL || `postgresql://${process.env.DB_USER || 'postgres'}:${process.env.DB_PASSWORD || 'postgres123'}@${process.env.DB_HOST || '127.0.0.1'}:${process.env.DB_PORT || 5432}/${process.env.DB_NAME || 'prima_gym_db'}`;
 
 const initialChanges = [
   {
