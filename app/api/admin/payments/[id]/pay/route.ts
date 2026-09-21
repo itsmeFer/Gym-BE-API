@@ -7,6 +7,12 @@ import { sendMembershipAgreementEmail } from "@/lib/mail/sendMembershipAgreement
 import { getTokenFromRequest, verifyToken } from "@/lib/auth";
 import { fetchUserPermissionKeys, resolveEffectivePermissions } from "@/lib/feature-permission";
 import { logActivity, extractClientIp } from "@/lib/activity-logger";
+import {
+  syncMemberToGate,
+  uploadMemberFaceToGate,
+  readPhotoAsBase64,
+  formatGateMemberId,
+} from "@/lib/gate/gate_service";
 
 export const runtime = "nodejs";
 
@@ -467,6 +473,61 @@ export async function POST(
       ipAddress: extractClientIp(request),
     });
 
+    let gateSyncResult = {
+      synced: false,
+      message: "Sinkronisasi gate belum dilakukan",
+    };
+
+    try {
+      const allowedRooms = [1];
+      const roomQuotas: Record<string, number> = {};
+      const pilatesSessions = Number(freshPlan?.pilatesSessions ?? freshPlan?.pilates_sessions ?? 0);
+      if (pilatesSessions > 0) {
+        allowedRooms.push(3);
+        roomQuotas["3"] = pilatesSessions;
+      }
+
+      const syncRes = await syncMemberToGate({
+        userId: Number(memberUser.id),
+        name: String(freshUser?.name ?? memberUser.name),
+        phone: String(freshUser?.phone ?? memberUser.phone),
+        joinDate: startedAt ?? new Date(),
+        packageId: Number(membership.planId ?? 1),
+        allowedRooms,
+        roomQuotas,
+        status: "Aktif",
+      });
+
+      if (syncRes.success) {
+        const photoBase64 = await readPhotoAsBase64(memberPhotoUrl);
+        if (photoBase64) {
+          const faceRes = await uploadMemberFaceToGate(
+            formatGateMemberId(Number(memberUser.id)),
+            photoBase64
+          );
+          gateSyncResult = {
+            synced: faceRes.success,
+            message: faceRes.message,
+          };
+        } else {
+          gateSyncResult = {
+            synced: true,
+            message: "Member aktif di gate, foto wajah tidak dapat dibaca untuk sync biometrik",
+          };
+        }
+      } else {
+        gateSyncResult = {
+          synced: false,
+          message: syncRes.message,
+        };
+      }
+    } catch (gateErr) {
+      gateSyncResult = {
+        synced: false,
+        message: gateErr instanceof Error ? gateErr.message : "Gagal terhubung ke gate",
+      };
+    }
+
     return successResponse({
       message: emailSent
         ? "Pembayaran berhasil diproses oleh admin. Membership sudah aktif dan PDF berhasil dikirim ke email user."
@@ -478,6 +539,7 @@ export async function POST(
           to: String(freshUser?.email ?? memberEmail),
           error: emailError,
         },
+        gateSync: gateSyncResult,
       },
     });
   } catch (error) {

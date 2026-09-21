@@ -9,6 +9,9 @@ import { PointHistory } from "./PointHistory";
 import MembershipPlanSchedule from "./MembershipPlanSchedule";
 import UserPermission from "./UserPermission";
 import ActivityLog from "./ActivityLog";
+import SystemChange from "./SystemChange";
+import SystemChangeItem from "./SystemChangeItem";
+import UserSystemChangeRead from "./UserSystemChangeRead";
 
 User.hasMany(Membership, {
   foreignKey: "userId",
@@ -120,6 +123,44 @@ ActivityLog.belongsTo(User, {
   as: "actor",
 });
 
+SystemChange.hasMany(SystemChangeItem, {
+  foreignKey: "systemChangeId",
+  as: "items",
+  onDelete: "CASCADE",
+});
+SystemChangeItem.belongsTo(SystemChange, {
+  foreignKey: "systemChangeId",
+  as: "systemChange",
+});
+
+User.hasMany(SystemChange, {
+  foreignKey: "authorUserId",
+  as: "systemChanges",
+});
+SystemChange.belongsTo(User, {
+  foreignKey: "authorUserId",
+  as: "author",
+});
+
+User.hasMany(UserSystemChangeRead, {
+  foreignKey: "userId",
+  as: "systemChangeReads",
+});
+UserSystemChangeRead.belongsTo(User, {
+  foreignKey: "userId",
+  as: "user",
+});
+
+SystemChange.hasMany(UserSystemChangeRead, {
+  foreignKey: "systemChangeId",
+  as: "reads",
+  onDelete: "CASCADE",
+});
+UserSystemChangeRead.belongsTo(SystemChange, {
+  foreignKey: "systemChangeId",
+  as: "systemChange",
+});
+
 export {
   User,
   Membership,
@@ -131,4 +172,7 @@ export {
   PointHistory,
   UserPermission,
   ActivityLog,
+  SystemChange,
+  SystemChangeItem,
+  UserSystemChangeRead,
 };
