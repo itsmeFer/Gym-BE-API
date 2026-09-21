@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { Sequelize } from "sequelize";
 import { Membership, MembershipPlan, User } from "@/database/models";
 import { errorResponse, successResponse } from "@/lib/response";
 import { requireFeature } from "@/lib/feature-permission";
@@ -7,6 +8,11 @@ export const runtime = "nodejs";
 
 function serializePayment(membership: any) {
   const data = membership?.get ? membership.get({ plain: true }) : membership;
+  const rawProof = data?.paymentProofPhoto ?? data?.payment_proof_photo ?? null;
+  const hasProof = Boolean(
+    data?.hasPaymentProof ??
+      (rawProof && String(rawProof).trim().length > 0)
+  );
 
   return {
     id: data?.id,
@@ -22,8 +28,9 @@ function serializePayment(membership: any) {
     paidAmount: Number(data?.paidAmount ?? 0),
     paidAt: data?.paidAt,
 
-    paymentProofPhoto:
-      data?.paymentProofPhoto ?? data?.payment_proof_photo ?? null,
+    hasPaymentProof: hasProof,
+    // Di list endpoint: jangan kirim base64 raksasa (hemat 100MB+ bandwidth)
+    paymentProofPhoto: rawProof?.startsWith("http") ? rawProof : null,
 
     memberStatus: data?.memberStatus,
     salesStatus: data?.salesStatus ?? "pending",
@@ -61,6 +68,17 @@ export async function GET(request: NextRequest) {
       where: {
         salesStatus: "waiting_payment",
         memberStatus: "pending",
+      },
+      attributes: {
+        include: [
+          [
+            Sequelize.literal(
+              "CASE WHEN payment_proof_photo IS NOT NULL AND LENGTH(TRIM(payment_proof_photo)) > 0 THEN true ELSE false END"
+            ),
+            "hasPaymentProof",
+          ],
+        ],
+        exclude: ["paymentProofPhoto"],
       },
       include: [
         {

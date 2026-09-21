@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { Op } from "sequelize";
+import { Op, Sequelize } from "sequelize";
 import { Attendance, AttendanceSetting } from "@/database/models";
 import { errorResponse, successResponse } from "@/lib/response";
 import { requireFeature } from "@/lib/feature-permission";
@@ -280,8 +280,22 @@ function serializeAttendance(attendance: any) {
 
   const workDurationMinutes = Math.floor(workDurationSeconds / 60);
 
+  const hasCheckInPhoto = Boolean(
+    plain.hasCheckInPhoto ||
+      (plain.checkInPhoto && String(plain.checkInPhoto).trim().length > 0)
+  );
+
+  const hasCheckOutPhoto = Boolean(
+    plain.hasCheckOutPhoto ||
+      (plain.checkOutPhoto && String(plain.checkOutPhoto).trim().length > 0)
+  );
+
   return {
     ...plain,
+    hasCheckInPhoto,
+    hasCheckOutPhoto,
+    checkInPhoto: plain.checkInPhoto ?? "",
+    checkOutPhoto: plain.checkOutPhoto ?? "",
     lateMinutes: 0,
     pointPenalty: 0,
     workDurationSeconds,
@@ -366,8 +380,38 @@ export async function GET(request: NextRequest) {
       };
     }
 
+    const includePhotos = searchParams.get("includePhotos") === "true";
+    const limitParam = toNumberOrNull(searchParams.get("limit"));
+    const limit = limitParam
+      ? Math.min(Math.max(limitParam, 1), 500)
+      : date || (startDate && endDate)
+      ? undefined
+      : 150;
+
     const attendances = await Attendance.findAll({
       where,
+      ...(includePhotos
+        ? {}
+        : {
+            attributes: {
+              include: [
+                [
+                  Sequelize.literal(
+                    'CASE WHEN "Attendance"."check_in_photo" IS NOT NULL AND LENGTH(TRIM("Attendance"."check_in_photo")) > 0 THEN true ELSE false END'
+                  ),
+                  "hasCheckInPhoto",
+                ],
+                [
+                  Sequelize.literal(
+                    'CASE WHEN "Attendance"."check_out_photo" IS NOT NULL AND LENGTH(TRIM("Attendance"."check_out_photo")) > 0 THEN true ELSE false END'
+                  ),
+                  "hasCheckOutPhoto",
+                ],
+              ],
+              exclude: ["checkInPhoto", "checkOutPhoto"],
+            },
+          }),
+      limit,
       order: [
         ["attendanceDate", "DESC"],
         ["createdAt", "DESC"],

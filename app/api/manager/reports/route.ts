@@ -143,8 +143,7 @@ function serializeMembership(membership: any) {
     paymentStatus: data?.paymentStatus ?? data?.payment_status ?? "",
     paidAmount: Number(data?.paidAmount ?? data?.paid_amount ?? 0),
     paidAt: data?.paidAt ?? data?.paid_at ?? null,
-    paymentProofPhoto:
-      data?.paymentProofPhoto ?? data?.payment_proof_photo ?? null,
+    paymentProofPhoto: null,
 
     memberStatus: data?.memberStatus ?? data?.member_status ?? "",
     salesStatus: data?.salesStatus ?? data?.sales_status ?? "pending",
@@ -183,8 +182,8 @@ function serializeAttendance(attendance: any) {
     pointPenalty: Number(data?.pointPenalty ?? data?.point_penalty ?? 0),
     location: data?.location ?? null,
     deviceMac: data?.deviceMac ?? data?.device_mac ?? null,
-    checkInPhoto: data?.checkInPhoto ?? data?.check_in_photo ?? null,
-    checkOutPhoto: data?.checkOutPhoto ?? data?.check_out_photo ?? null,
+    checkInPhoto: null,
+    checkOutPhoto: null,
     note: data?.note ?? null,
     isManual: data?.isManual ?? data?.is_manual ?? false,
     createdAt: data?.createdAt ?? data?.created_at ?? null,
@@ -537,6 +536,9 @@ export async function GET(request: NextRequest) {
       await Promise.all([
         Membership.findAll({
           where: membershipWhere,
+          attributes: {
+            exclude: ["paymentProofPhoto"],
+          },
           include: [
             {
               model: User,
@@ -613,6 +615,9 @@ export async function GET(request: NextRequest) {
 
         Attendance.findAll({
           where: attendanceWhere,
+          attributes: {
+            exclude: ["checkInPhoto", "checkOutPhoto"],
+          },
           order: [
             ["attendanceDate", "DESC"],
             ["createdAt", "DESC"],

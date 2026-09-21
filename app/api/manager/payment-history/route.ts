@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { Op } from "sequelize";
+import { Op, Sequelize } from "sequelize";
 
 import { Membership, MembershipPlan, User } from "@/database/models";
 import { errorResponse, successResponse } from "@/lib/response";
@@ -114,6 +114,8 @@ function serializeHistory(membership: any) {
 
     paymentProofPhoto:
       data?.paymentProofPhoto ?? data?.payment_proof_photo ?? null,
+    hasPaymentProof:
+      Boolean(data?.hasPaymentProof ?? data?.has_payment_proof ?? false),
 
     memberStatus: data?.memberStatus ?? data?.member_status ?? "",
     salesStatus: data?.salesStatus ?? data?.sales_status ?? "pending",
@@ -302,6 +304,17 @@ export async function GET(request: NextRequest) {
 
     const histories = await Membership.findAll({
       where,
+      attributes: {
+        include: [
+          [
+            Sequelize.literal(
+              'CASE WHEN "Membership"."payment_proof_photo" IS NOT NULL AND LENGTH(TRIM("Membership"."payment_proof_photo")) > 0 THEN true ELSE false END'
+            ),
+            "hasPaymentProof",
+          ],
+        ],
+        exclude: ["paymentProofPhoto"],
+      },
       include: [
         {
           model: User,

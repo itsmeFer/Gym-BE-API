@@ -1,11 +1,12 @@
 import { NextRequest } from "next/server";
+import { Op } from "sequelize";
 
+import { sequelize } from "@/database/connection";
 import { Membership, MembershipPlan, User } from "@/database/models";
 import { errorResponse, successResponse } from "@/lib/response";
 import { buildMembershipAgreementPdf } from "@/lib/pdf/membershipAgreementPdf";
 import { sendMembershipAgreementEmail } from "@/lib/mail/sendMembershipAgreementEmail";
-import { getTokenFromRequest, verifyToken } from "@/lib/auth";
-import { fetchUserPermissionKeys, resolveEffectivePermissions } from "@/lib/feature-permission";
+import { requireFeature } from "@/lib/feature-permission";
 import { logActivity, extractClientIp } from "@/lib/activity-logger";
 import {
   syncMemberToGate,
@@ -119,7 +120,15 @@ async function findPaymentWithRelations(id: number) {
       {
         model: User,
         as: "user",
-        attributes: ["id", "name", "email", "phone", "role", "isActive", "photoUrl"],
+        attributes: [
+          "id",
+          "name",
+          "email",
+          "phone",
+          "role",
+          "isActive",
+          "photoUrl",
+        ],
       },
       {
         model: User,
@@ -130,7 +139,7 @@ async function findPaymentWithRelations(id: number) {
       {
         model: User,
         as: "processedBy",
-        attributes: ["id", "name", "email", "phone", "role", "isActive"],
+        attributes: ["id", "name", "email", "phone", "role"],
         required: false,
       },
       {
@@ -142,29 +151,31 @@ async function findPaymentWithRelations(id: number) {
   });
 }
 
-function getPlainData(value: any) {
-  return value?.get ? value.get({ plain: true }) : value;
+function getPlainData(entity: any) {
+  if (!entity) return null;
+  return entity.get ? entity.get({ plain: true }) : entity;
 }
 
 /**
  * POST /api/admin/payments/:id/pay
  *
- * Admin memproses pembayaran.
- *
- * Body:
- * {
- *   "adminUserId": 1,
- *   "paidAmount": 300000,
- *   "paymentMethod": "cash",
- *   "paymentProofPhoto": "http://.../image.jpg",
- *   "adminNote": "Bayar cash"
- * }
+ * Proses pembayaran member oleh admin/kasir.
  */
 export async function POST(
   request: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
   try {
+    // 1. Zero Trust: Wajib autentikasi JWT dengan role kasir/admin/manager
+    const auth = await requireFeature(
+      request,
+      ["admin.kasir", "kasir.verifikasi", "kasir.pembayaran", "manager.pembayaran"],
+      ["admin", "kasir", "manager"]
+    );
+    if (!auth.success) {
+      return errorResponse(auth.message, auth.statusCode);
+    }
+
     const { id } = await context.params;
     const paymentId = toNumber(id, 0);
 
@@ -172,15 +183,11 @@ export async function POST(
       return errorResponse("ID pembayaran tidak valid", 400);
     }
 
-    const body = await request.json();
+    // Identitas kasir terikat secara kriptografis ke token JWT
+    const resolvedAdminId = auth.user.id;
+    const adminUser = auth.user;
 
-    const adminUserId = toNumber(
-      body.adminUserId ??
-      body.admin_user_id ??
-      body.processedByUserId ??
-      body.processed_by_user_id,
-      0
-    );
+    const body = await request.json().catch(() => ({}));
 
     const paidAmount = toNumber(body.paidAmount ?? body.paid_amount, 0);
 
@@ -196,21 +203,6 @@ export async function POST(
     const paymentProofPhotoInput = String(
       body.paymentProofPhoto ?? body.payment_proof_photo ?? ""
     ).trim();
-
-    // Verifikasi identitas admin / staf dari token JWT
-    const token = getTokenFromRequest(request);
-    let resolvedAdminId = adminUserId;
-
-    if (token) {
-      const payload = verifyToken(token);
-      if (payload?.id) {
-        resolvedAdminId = payload.id;
-      }
-    }
-
-    if (!resolvedAdminId) {
-      return errorResponse("Admin user wajib dikirim atau terautentikasi", 400);
-    }
 
     if (!paidAmount || paidAmount <= 0) {
       return errorResponse("Nominal pembayaran wajib lebih dari 0", 400);
@@ -230,35 +222,6 @@ export async function POST(
       return errorResponse(
         "Metode pembayaran hanya boleh cash, transfer, qris, debit, credit, cashier, atau cashless",
         400
-      );
-    }
-
-    const admin = await User.findByPk(resolvedAdminId);
-
-    if (!admin) {
-      return errorResponse("Admin/Kasir tidak ditemukan", 404);
-    }
-
-    const adminRole = String(admin.get("role") ?? "").toLowerCase();
-    const superRoles = ["it", "superadmin", "owner", "direktur"];
-    const allowedRoles = ["admin", "owner", "direktur", "manager", "kasir", ...superRoles];
-
-    let hasAccess = allowedRoles.includes(adminRole);
-    if (!hasAccess) {
-      const perms = await fetchUserPermissionKeys(admin.id);
-      const effective = resolveEffectivePermissions(adminRole, perms);
-      hasAccess = [
-        "admin.kasir",
-        "kasir.verifikasi",
-        "kasir.pembayaran",
-        "manager.pembayaran",
-      ].some((k) => effective.includes(k));
-    }
-
-    if (!hasAccess) {
-      return errorResponse(
-        "User yang memproses pembayaran harus memiliki izin kasir atau role yang sesuai",
-        403
       );
     }
 
@@ -325,11 +288,12 @@ export async function POST(
 
     const planData = plan ? plan.get({ plain: true }) : null;
 
-    const packagePrice = Number(membership.packagePrice ?? planData?.price ?? 0);
+    // Server-authoritative: ambil harga resmi dari master paket di database
+    const officialPackagePrice = Number(planData?.price ?? membership.packagePrice ?? 0);
 
-    if (paidAmount < packagePrice) {
+    if (paidAmount < officialPackagePrice) {
       return errorResponse(
-        `Nominal bayar kurang. Harga paket ${packagePrice}, dibayar ${paidAmount}`,
+        `Nominal bayar kurang. Harga paket resmi Rp ${officialPackagePrice.toLocaleString("id-ID")}, dibayar Rp ${paidAmount.toLocaleString("id-ID")}`,
         400
       );
     }
@@ -353,39 +317,61 @@ export async function POST(
 
     const oldNotes = membership.notes ? String(membership.notes) : "";
 
-    const activePeriodNote = `Masa aktif: ${durationDays} hari${freeMembershipDays > 0
+    const activePeriodNote = `Masa aktif: ${durationDays} hari${
+      freeMembershipDays > 0
         ? ` + free membership ${freeMembershipDays} hari`
         : ""
-      } = total ${totalActiveDays} hari`;
+    } = total ${totalActiveDays} hari`;
 
     const mergedNote = cleanAdminNote
       ? `Catatan admin: ${cleanAdminNote}\n${activePeriodNote}`
       : activePeriodNote;
 
-    const processedNote = `Diproses oleh admin: ${admin.get("name")}`;
+    const processedNote = `Diproses oleh admin: ${adminUser.email || `Staf #${adminUser.id}`}`;
 
     const newNotes = oldNotes
       ? `${oldNotes}\n\n${mergedNote}\n${processedNote}`
       : `${mergedNote}\n${processedNote}`;
 
-    await membership.update({
-      paymentMethod,
-      paymentStatus: "paid",
-      paidAmount,
-      paidAt: paidAt,
+    // 2. Transaksi Atomik & Anti-Double Payment (Race Condition Protection)
+    const t = await sequelize.transaction();
+    try {
+      const [affectedRows] = await Membership.update(
+        {
+          paymentMethod,
+          paymentStatus: "paid",
+          paidAmount,
+          paidAt: paidAt,
+          paymentProofPhoto: finalProofPhoto,
+          memberStatus: "active",
+          salesStatus: "completed",
+          startedAt,
+          expiredAt,
+          processedByUserId: resolvedAdminId,
+          notes: newNotes,
+        },
+        {
+          where: {
+            id: paymentId,
+            paymentStatus: { [Op.ne]: "paid" },
+          },
+          transaction: t,
+        }
+      );
 
-      paymentProofPhoto: finalProofPhoto,
+      if (affectedRows === 0) {
+        await t.rollback();
+        return errorResponse(
+          "Pembayaran ini sudah pernah diproses oleh kasir lain atau status sudah lunas",
+          400
+        );
+      }
 
-      memberStatus: "active",
-      salesStatus: "completed",
-
-      startedAt,
-      expiredAt,
-
-      processedByUserId: resolvedAdminId,
-
-      notes: newNotes,
-    });
+      await t.commit();
+    } catch (dbError) {
+      await t.rollback();
+      throw dbError;
+    }
 
     const freshPayment = await findPaymentWithRelations(membership.id);
 

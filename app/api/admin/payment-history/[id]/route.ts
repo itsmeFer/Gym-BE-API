@@ -162,7 +162,11 @@ export async function GET(
 ) {
   try {
 
-    const auth = await requireFeature(request, ["admin.kasir", "admin.laporan"], ["admin"]);
+    const auth = await requireFeature(
+      request,
+      ["admin.kasir", "kasir.verifikasi", "kasir.pembayaran", "manager.pembayaran", "admin.laporan"],
+      ["admin", "kasir", "manager"]
+    );
     if (!auth.success) {
       return errorResponse(auth.message, auth.statusCode);
     }
@@ -201,7 +205,11 @@ export async function PUT(
   context: { params: Promise<{ id: string }> }
 ) {
   try {
-    const auth = await requireFeature(request, ["admin.kasir", "admin.laporan"], ["admin"]);
+    const auth = await requireFeature(
+      request,
+      ["admin.kasir", "admin.laporan"],
+      ["admin", "owner", "direktur"]
+    );
     if (!auth.success) {
       return errorResponse(auth.message, auth.statusCode);
     }
@@ -212,31 +220,8 @@ export async function PUT(
       return errorResponse("ID riwayat tidak valid", 400);
     }
 
+    const resolvedAdminId = auth.user.id;
     const body = await request.json();
-
-    const adminUserId = toNumber(
-      body.adminUserId ??
-        body.admin_user_id ??
-        body.processedByUserId ??
-        body.processed_by_user_id,
-      0
-    );
-
-    if (!adminUserId) {
-      return errorResponse("Admin user wajib dikirim", 400);
-    }
-
-    const admin = await User.findByPk(adminUserId);
-
-    if (!admin) {
-      return errorResponse("Admin tidak ditemukan", 404);
-    }
-
-    const adminRole = String(admin.get("role") ?? "").toLowerCase();
-
-    if (adminRole !== "admin" && adminRole !== "owner" && adminRole !== "direktur") {
-      return errorResponse("User yang mengedit pembayaran harus role admin, owner, atau direktur", 403);
-    }
 
     const history = await Membership.findByPk(historyId);
 
@@ -312,7 +297,7 @@ export async function PUT(
       paymentStatus: "paid",
       salesStatus: "completed",
 
-      processedByUserId: adminUserId,
+      processedByUserId: resolvedAdminId,
 
       notes,
     });

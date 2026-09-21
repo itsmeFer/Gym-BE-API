@@ -79,7 +79,11 @@ export async function GET(
 ) {
   try {
 
-    const auth = await requireFeature(request, "admin.kasir", ["admin"]);
+    const auth = await requireFeature(
+      request,
+      ["admin.kasir", "kasir.verifikasi", "kasir.pembayaran", "manager.pembayaran"],
+      ["admin", "kasir", "manager"]
+    );
     if (!auth.success) {
       return errorResponse(auth.message, auth.statusCode);
     }

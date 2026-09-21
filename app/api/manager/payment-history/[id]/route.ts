@@ -230,7 +230,11 @@ export async function PUT(
   context: { params: Promise<{ id: string }> }
 ) {
   try {
-    const auth = await requireFeature(request, "manager.pembayaran", ["manager"]);
+    const auth = await requireFeature(
+      request,
+      "manager.pembayaran",
+      ["manager", "admin", "owner", "direktur"]
+    );
     if (!auth.success) {
       return errorResponse(auth.message, auth.statusCode);
     }
@@ -241,31 +245,8 @@ export async function PUT(
       return errorResponse("ID riwayat tidak valid", 400);
     }
 
+    const resolvedAdminId = auth.user.id;
     const body = await request.json();
-
-    const adminUserId = toNumber(
-      body.adminUserId ??
-        body.admin_user_id ??
-        body.processedByUserId ??
-        body.processed_by_user_id,
-      0
-    );
-
-    if (!adminUserId) {
-      return errorResponse("Admin user wajib dikirim", 400);
-    }
-
-    const admin = await User.findByPk(adminUserId);
-
-    if (!admin) {
-      return errorResponse("Admin tidak ditemukan", 404);
-    }
-
-    const adminRole = normalizeRole(admin.get("role"));
-
-    if (adminRole !== "admin" && adminRole !== "manager" && adminRole !== "direktur" && adminRole !== "owner") {
-      return errorResponse("User yang memproses pembayaran wajib role admin, manager, direktur, atau owner", 403);
-    }
 
     const history = await Membership.findByPk(historyId);
 
@@ -331,7 +312,7 @@ export async function PUT(
       expiredAt,
       notes,
       paymentProofPhoto,
-      processedByUserId: adminUserId,
+      processedByUserId: resolvedAdminId,
     });
 
     const freshHistory = await findHistoryWithRelations(history.id);

@@ -105,32 +105,15 @@ export async function GET(
             }
         }
 
-        const viewerUserId = toNumber(searchParams.get("viewerUserId"), 0);
+        const history = await findHistoryWithRelations(historyId);
 
-        if (!allowed && viewerUserId) {
-            const viewer = await User.findByPk(viewerUserId, {
-                attributes: ["id", "name", "email", "phone", "role", "isActive"],
-            });
+        if (!history) {
+            return jsonError("Riwayat pembayaran tidak ditemukan", 404);
+        }
 
-            if (viewer) {
-                const role = String(viewer.get("role") ?? "").toLowerCase();
-                const isActive = Boolean(viewer.get("isActive") ?? true);
-
-                if (isActive) {
-                    if (allowedRoles.includes(role)) {
-                        allowed = true;
-                    } else {
-                        const perms = await fetchUserPermissionKeys(viewer.id);
-                        const effective = resolveEffectivePermissions(role, perms);
-                        allowed = [
-                            "admin.kasir",
-                            "kasir.verifikasi",
-                            "kasir.pembayaran",
-                            "manager.pembayaran",
-                        ].some((k) => effective.includes(k));
-                    }
-                }
-            }
+        // Izinkan juga member pemilik transaksi mengunduh PDF perjanjiannya sendiri
+        if (!allowed && userPayload && Number(userPayload.id) === Number(history.userId)) {
+            allowed = true;
         }
 
         if (!allowed) {
@@ -138,12 +121,6 @@ export async function GET(
                 "Akses ditolak: Anda tidak memiliki izin untuk mengunduh PDF perjanjian ini",
                 403
             );
-        }
-
-        const history = await findHistoryWithRelations(historyId);
-
-        if (!history) {
-            return jsonError("Riwayat pembayaran tidak ditemukan", 404);
         }
 
         const data = getPlainData(history);

@@ -170,7 +170,11 @@ export async function POST(
 ) {
   try {
 
-    const auth = await requireFeature(request, "manager.pembayaran", ["manager"]);
+    const auth = await requireFeature(
+      request,
+      "manager.pembayaran",
+      ["manager", "admin", "owner", "direktur"]
+    );
     if (!auth.success) {
       return errorResponse(auth.message, auth.statusCode);
     }
@@ -181,38 +185,17 @@ export async function POST(
       return errorResponse("ID riwayat tidak valid", 400);
     }
 
-    const body = await request.json();
+    const resolvedAdminId = auth.user.id;
+    const adminEmail = auth.user.email || `Staf #${resolvedAdminId}`;
 
-    const adminUserId = toNumber(
-      body.adminUserId ??
-        body.admin_user_id ??
-        body.processedByUserId ??
-        body.processed_by_user_id,
-      0
-    );
+    const body = await request.json();
 
     const revokeReason = String(
       body.revokeReason ?? body.revoke_reason ?? ""
     ).trim();
 
-    if (!adminUserId) {
-      return errorResponse("Admin user wajib dikirim", 400);
-    }
-
     if (!revokeReason) {
       return errorResponse("Alasan cabut membership wajib diisi", 400);
-    }
-
-    const admin = await User.findByPk(adminUserId);
-
-    if (!admin) {
-      return errorResponse("Admin tidak ditemukan", 404);
-    }
-
-    const adminRole = String(admin.get("role") ?? "").toLowerCase();
-
-    if (adminRole !== "admin" && adminRole !== "owner" && adminRole !== "direktur" && adminRole !== "manager") {
-      return errorResponse("User yang mencabut membership harus role admin, owner, direktur, atau manager", 403);
     }
 
     const history = await Membership.findByPk(historyId);
@@ -237,17 +220,15 @@ export async function POST(
     const oldNotes = history.notes ? String(history.notes) : "";
 
     const newNotes = oldNotes
-      ? `${oldNotes}\n\nCabut membership oleh admin ${admin.get(
-          "name"
-        )}: ${revokeReason}`
-      : `Cabut membership oleh admin ${admin.get("name")}: ${revokeReason}`;
+      ? `${oldNotes}\n\nCabut membership oleh ${adminEmail}: ${revokeReason}`
+      : `Cabut membership oleh ${adminEmail}: ${revokeReason}`;
 
     await history.update({
       memberStatus: "revoked",
       salesStatus: "completed",
       expiredAt: new Date(),
       notes: newNotes,
-      processedByUserId: adminUserId,
+      processedByUserId: resolvedAdminId,
     });
 
     const freshHistory = await findHistoryWithRelations(history.id);

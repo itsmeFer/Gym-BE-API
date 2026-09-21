@@ -163,29 +163,61 @@ export async function GET(request: Request) {
       ],
     });
 
-    const users = await Promise.all(
-      referredUsers.map(async (referredUser) => {
-        const referredUserData = referredUser.get({ plain: true }) as unknown as Record<string, unknown>;
+    const referredUserIds = referredUsers
+      .map((referredUser) => {
+        const referredUserData =
+          typeof referredUser.get === "function"
+            ? referredUser.get({ plain: true })
+            : referredUser;
+        return Number((referredUserData as any).id);
+      })
+      .filter((id) => Number.isFinite(id) && id > 0);
 
-        const membership = await Membership.findOne({
-          where: {
-            userId: Number(referredUserData.id),
-            paymentStatus: {
-              [Op.in]: ["paid", "unpaid"],
+    const memberships =
+      referredUserIds.length > 0
+        ? await Membership.findAll({
+            where: {
+              userId: {
+                [Op.in]: referredUserIds,
+              },
+              paymentStatus: {
+                [Op.in]: ["paid", "unpaid"],
+              },
+              memberStatus: {
+                [Op.in]: ["pending", "active", "expired", "revoked"],
+              },
             },
-            memberStatus: {
-              [Op.in]: ["pending", "active", "expired", "revoked"],
+            attributes: {
+              exclude: ["paymentProofPhoto"],
             },
-          },
-          order: [
-            ["createdAt", "DESC"],
-            ["id", "DESC"],
-          ],
-        });
+            order: [
+              ["createdAt", "DESC"],
+              ["id", "DESC"],
+            ],
+          })
+        : [];
 
-        return serializeReferralUser(referredUser, membership);
-      }),
-    );
+    const latestMembershipByUser = new Map<number, any>();
+    for (const membership of memberships) {
+      const plain =
+        typeof membership.get === "function"
+          ? membership.get({ plain: true })
+          : membership;
+      const uid = Number((plain as any).userId ?? (plain as any).user_id);
+      if (uid > 0 && !latestMembershipByUser.has(uid)) {
+        latestMembershipByUser.set(uid, membership);
+      }
+    }
+
+    const users = referredUsers.map((referredUser) => {
+      const referredUserData =
+        typeof referredUser.get === "function"
+          ? referredUser.get({ plain: true })
+          : referredUser;
+      const uid = Number((referredUserData as any).id);
+      const membership = latestMembershipByUser.get(uid) || null;
+      return serializeReferralUser(referredUser, membership);
+    });
 
     const totalUsed = users.length;
     const totalRewarded = users.filter(

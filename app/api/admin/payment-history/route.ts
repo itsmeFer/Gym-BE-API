@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { Op } from "sequelize";
+import { Op, Sequelize } from "sequelize";
 
 import { Membership, MembershipPlan, User } from "@/database/models";
 import { errorResponse, successResponse } from "@/lib/response";
@@ -95,8 +95,13 @@ function serializeHistory(
     paidAmount: Number(data?.paidAmount ?? 0),
     paidAt: data?.paidAt,
 
-    paymentProofPhoto:
-      data?.paymentProofPhoto ?? data?.payment_proof_photo ?? null,
+    hasPaymentProof: Boolean(
+      data?.hasPaymentProof ??
+        (data?.paymentProofPhoto && String(data.paymentProofPhoto).trim().length > 0)
+    ),
+    paymentProofPhoto: data?.paymentProofPhoto?.startsWith("http")
+      ? data.paymentProofPhoto
+      : null,
 
     memberStatus: data?.memberStatus,
     salesStatus: data?.salesStatus ?? "pending",
@@ -151,10 +156,22 @@ export async function GET(request: NextRequest) {
 
     const histories = await Membership.findAll({
       where,
+      attributes: {
+        include: [
+          [
+            Sequelize.literal(
+              "CASE WHEN payment_proof_photo IS NOT NULL AND LENGTH(TRIM(payment_proof_photo)) > 0 THEN true ELSE false END"
+            ),
+            "hasPaymentProof",
+          ],
+        ],
+        exclude: ["paymentProofPhoto"],
+      },
       order: [
         ["paidAt", "DESC"],
         ["id", "DESC"],
       ],
+      limit: 50,
     });
 
     const plainHistories = histories.map((item) => item.get({ plain: true }));

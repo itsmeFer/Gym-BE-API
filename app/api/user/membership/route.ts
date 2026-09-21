@@ -197,6 +197,9 @@ export async function GET(request: Request) {
           [Op.in]: ["pending", "active", "expired", "revoked"],
         },
       },
+      attributes: {
+        exclude: ["paymentProofPhoto"],
+      },
       include: [
         {
           model: MembershipPlan,

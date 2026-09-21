@@ -56,6 +56,9 @@ export async function GET(request: NextRequest) {
           [Op.notIn]: ["trainer", "karyawan", "admin", "manager"],
         },
       },
+      attributes: {
+        exclude: ["checkInPhoto", "checkOutPhoto"],
+      },
       order: [["createdAt", "ASC"]],
     });
 
@@ -146,8 +149,8 @@ export async function GET(request: NextRequest) {
                 checkIn: att.checkIn,
                 checkOut: att.checkOut,
                 status: att.status,
-                checkInPhoto: att.checkInPhoto,
-                checkOutPhoto: att.checkOutPhoto,
+                checkInPhoto: "",
+                checkOutPhoto: "",
                 email: u?.email || "",
                 phone: u?.phone || "",
                 photoUrl: u?.photoUrl || null,
